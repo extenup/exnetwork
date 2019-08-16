@@ -26,7 +26,7 @@ private:
     void connectToHost();
 
     void processMessage(const QJsonObject &message);
-    void ping();
+    void updateLastActivity();
 
 private slots:
     void onSocketConnected();
@@ -37,9 +37,12 @@ private slots:
 
 protected:
     void sendMessage(QJsonObject message);
+
+    void ping();
     
     template<typename T>
     void addToTail(const QString &key, const T &value) { mTail[key] = value; }
+    void removeFromTail(const QString &key);
 
     virtual void readMessage(const QJsonObject &message) = 0;
 

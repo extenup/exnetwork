@@ -30,27 +30,25 @@ void ExClient::processMessage(const QJsonObject &message)
 {
     if (message.contains("exnetwork_ping"))
     {
-        ping();
+        updateLastActivity();
     }
     else
     if (message.contains("exnetwork_error"))
     {
         emit errorEvent(message["exnetwork_error"].toString());
     }
-    else
-    {
-        readMessage(message);
-    }
+
+    readMessage(message);
 }
 
-void ExClient::ping()
+void ExClient::updateLastActivity()
 {
     mLastActivity = QDateTime::currentDateTime().toUTC().toSecsSinceEpoch();
 }
 
 void ExClient::onSocketConnected()
 {
-    ping();
+    updateLastActivity();
     onPingTimerTimeout();
     mPingTimer.start();
     emit connectedEvent();
@@ -75,8 +73,10 @@ void ExClient::onSocketReadyRead()
     QByteArray rawMessage = mSocket->readAll();
     mBuffer += rawMessage;
     QList<QByteArray> list = mBuffer.split('\n');
+
     if (list.size() > 1)
     {
+        mBuffer = list.last();
         for (int i = 0; i < list.size() - 1; i++)
         {
             QJsonObject message = QJsonDocument::fromJson(list[i]).object();
@@ -89,15 +89,12 @@ void ExClient::onSocketReadyRead()
                 qDebug() << QString("Wrong message format %0").arg(QString(list[i]));
             }
         }
-        mBuffer = list.last();
     }
 }
 
 void ExClient::onPingTimerTimeout()
 {
-    QJsonObject message;
-    message["exnetwork_ping"];
-    sendMessage(message);
+    ping();
 
     qint64 currentDateTime = QDateTime::currentDateTime().toUTC().toSecsSinceEpoch();
     if (currentDateTime - mLastActivity > mPingTimeoutSecs)
@@ -117,6 +114,18 @@ void ExClient::sendMessage(QJsonObject message)
     {
         mSocket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
     }
+}
+
+void ExClient::ping()
+{
+    QJsonObject message;
+    message["exnetwork_ping"];
+    sendMessage(message);
+}
+
+void ExClient::removeFromTail(const QString &key)
+{
+    mTail.remove(key);
 }
 
 ExClient::ExClient(QObject *parent) :
