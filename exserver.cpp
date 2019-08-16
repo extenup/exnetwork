@@ -2,236 +2,199 @@
 #include <QJsonDocument>
 #include <QDateTime>
 
-void ExServer::deleteSocket(QTcpSocket *socket)
+void ExServer::incomingConnection(qintptr socketDescriptor)
 {
-    removeSocketFromConnections(socket);
+    QThread *thr = new QThread();
+    QTcpSocket *soc = new QTcpSocket();
 
-    socket->disconnect();
-    socket->deleteLater();
+    soc->setSocketDescriptor(socketDescriptor);
+    soc->moveToThread(thr);
+
+    SocketInfo socInf;
+    socInf.lastActivity = QDateTime::currentSecsSinceEpoch();
+    socInf.thread = thr;
+    mConnectionsMutex.lock();
+    mConnections[soc] = socInf;
+    mConnectionsMutex.unlock();
+
+    connect(thr, &QThread::finished, thr, &QThread::deleteLater);
+    connect(thr, &QThread::finished, soc, &QTcpSocket::deleteLater);
+    connect(soc, &QTcpSocket::readyRead, [this, soc]()
+    {
+        mConnectionsMutex.lock();
+        mConnections[soc].buffer += soc->readAll();
+        QList<QByteArray> msgs = mConnections[soc].buffer.split('\n');
+        if (msgs.size() > 1)
+        {
+            mConnections[soc].buffer = msgs.last();
+            msgs.pop_back();
+        }
+        mConnectionsMutex.unlock();
+        for (int i = 0; i < msgs.size(); i++)
+        {
+            QJsonObject msg = QJsonDocument::fromJson(msgs[i]).object();
+            if (!msg.isEmpty())
+            {
+                processMessage(soc, msg);
+            }
+        }
+    });
+
+    thr->start();
 }
 
-void ExServer::processMessage(QTcpSocket *socket, const QJsonObject &message)
+void ExServer::processMessage(QTcpSocket *socket, QJsonObject &message)
 {
     if (message.contains("exnetwork_ping"))
     {
         ping(socket, message);
     }
-    else
-    {
-        readMessage(socket, message);
-    }
+    readMessage(socket, message);
 }
 
-void ExServer::ping(QTcpSocket *socket, const QJsonObject &message)
+void ExServer::ping(QTcpSocket *socket, QJsonObject &message)
 {
-    mLastActivities[socket] = QDateTime::currentDateTime().toUTC().toSecsSinceEpoch();
+    mConnectionsMutex.lock();
+    if (mConnections.contains(socket))
+    {
+        mConnections[socket].lastActivity = QDateTime::currentSecsSinceEpoch();
+    }
+    mConnectionsMutex.unlock();
     sendMessage(socket, message);
-}
-
-void ExServer::onSocketReadyRead()
-{
-    QTcpSocket *socket = qobject_cast<QTcpSocket *>(sender());
-    QByteArray rawMessage = socket->readAll();
-    if (rawMessage.mid(0, 3) == "GET")
-    {
-        readHttp(socket, rawMessage);
-    }
-    else
-    {
-        mBuffers[socket] += rawMessage;
-        QList<QByteArray> list = mBuffers[socket].split('\n');
-        if (list.size() > 1)
-        {
-            for (int i = 0; i < list.size() - 1; i++)
-            {
-                QJsonObject message = QJsonDocument::fromJson(list[i]).object();
-                if (!message.isEmpty())
-                {
-                    processMessage(socket, message);
-                }
-                else
-                {
-                    qDebug() << QString("Wrong message format %0").arg(QString(list[i]));
-                }
-            }
-            mBuffers[socket] = list.last();
-        }
-    }
-}
-
-void ExServer::onSocketDisconnected()
-{
-    QTcpSocket *socket = qobject_cast<QTcpSocket *>(sender());
-    deleteSocket(socket);
-}
-
-void ExServer::onSocketError(QAbstractSocket::SocketError error)
-{
-    QTcpSocket *socket = qobject_cast<QTcpSocket *>(sender());
-    if (error != QAbstractSocket::RemoteHostClosedError)
-    {
-        qDebug() << "Socket ERROR number: " << error;
-        qDebug() << "Socket ERROR string: " << socket->errorString();
-    }
-    deleteSocket(socket);
-}
-
-void ExServer::onServerNewConnection()
-{
-    QTcpSocket *socket = mServer.nextPendingConnection();
-    mLastActivities[socket] = QDateTime::currentDateTime().toUTC().toSecsSinceEpoch();
-
-    connect(socket, SIGNAL(disconnected()),
-            this, SLOT(onSocketDisconnected()));
-
-    connect(socket, SIGNAL(error(QAbstractSocket::SocketError)),
-            this, SLOT(onSocketError(QAbstractSocket::SocketError)));
-
-    connect(socket, SIGNAL(readyRead()),
-            this, SLOT(onSocketReadyRead()));
 }
 
 void ExServer::onPingTimerTimeout()
 {
-    qint64 currentDateTime = QDateTime::currentDateTime().toUTC().toSecsSinceEpoch();
-    for (QTcpSocket *key : mLastActivities.keys())
+    qint64 secs = QDateTime::currentSecsSinceEpoch();
+    mConnectionsMutex.lock();
+    for (QTcpSocket *soc : mConnections.keys())
     {
-        if (currentDateTime - mLastActivities[key] > mPingTimeoutSecs)
+        if (secs - mConnections[soc].lastActivity > mPingTimeoutSecs)
         {
-            key->disconnectFromHost();
+            mConnections[soc].thread->quit();
+            mConnections.remove(soc);
         }
     }
+    mConnectionsMutex.unlock();
 }
 
-ExConnection *ExServer::addSocketToConnection(const QString &id, QTcpSocket *socket)
+void ExServer::setConnectionId(QTcpSocket *socket, const QString &id)
 {
-    removeSocketFromConnections(socket);
-
-    ExConnection *connection = getConnection(id);
-    if (connection == nullptr)
+    mConnectionsMutex.lock();
+    if (mConnections.contains(socket))
     {
-        ExConnection c;
-        c.id = id;
-        c.sockets.push_back(socket);
-        mConnections.push_back(c);
-        connection = &mConnections.last();
+        mConnections[socket].id = id;
     }
-    else
+    mConnectionsMutex.unlock();
+}
+
+QString ExServer::getConnectionIdBySocket(QTcpSocket *socket)
+{
+    QString id;
+    mConnectionsMutex.lock();
+    if (mConnections.contains(socket))
     {
-        if (!connection->sockets.contains(socket))
+        id = mConnections[socket].id;
+    }
+    mConnectionsMutex.unlock();
+    return id;
+}
+
+bool ExServer::isOnline(const QString &id)
+{
+    bool io = false;
+    mConnectionsMutex.lock();
+    for (QTcpSocket *soc : mConnections.keys())
+    {
+        if (mConnections[soc].id == id)
         {
-            connection->sockets.push_back(socket);
+            io = true;
+            break;
         }
     }
-
-    connectionAddedEvent(connection->id);
-    return connection;
+    mConnectionsMutex.unlock();
+    return io;
 }
 
-void ExServer::removeSocketFromConnections(QTcpSocket *socket)
+void ExServer::sendMessage(QTcpSocket *socket, QJsonObject &message)
 {
-    for (int i = 0; i < mConnections.size(); i++)
-    {
-        ExConnection &connection = mConnections[i];
-        int isocket = connection.sockets.indexOf(socket);
-        if (isocket != -1)
-        {
-            connection.sockets.remove(isocket);
-            if (connection.sockets.size() == 0)
-            {
-                connectionRemovedEvent(connection.id);
-                mConnections.remove(i);
-            }
-        }
-    }
-    mBuffers.remove(socket);
-    mLastActivities.remove(socket);
-}
-
-ExConnection *ExServer::getConnection(const QString &id)
-{
-    QVector<ExConnection>::iterator it = std::find(mConnections.begin(), mConnections.end(), id);
-    if (it != mConnections.end())
-    {
-        return &(*it);
-    }
-    else
-    {
-        return nullptr;
-    }
-}
-
-ExConnection *ExServer::getConnection(const QTcpSocket *socket)
-{
-    QVector<ExConnection>::iterator connIt = std::find(mConnections.begin(), mConnections.end(), socket);
-    if (connIt != mConnections.end())
-    {
-        QVector<QTcpSocket *>::iterator sockIt =
-                std::find(connIt->sockets.begin(), connIt->sockets.end(), socket);
-        if (sockIt != connIt->sockets.end())
-        {
-            return &(*connIt);
-        }
-    }
-    return nullptr;
-}
-
-void ExServer::sendMessage(QTcpSocket *socket, const QJsonObject &message)
-{
-    if (socket->state() == QTcpSocket::ConnectedState)
+    mConnectionsMutex.lock();
+    if (mConnections.contains(socket) && socket->state() == QTcpSocket::ConnectedState)
     {
         socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
     }
+    mConnectionsMutex.unlock();
 }
 
-void ExServer::sendMessage(ExConnection *connection, const QJsonObject &message)
+void ExServer::sendMessage(const QString &id, QJsonObject &message)
 {
-    for (QTcpSocket *socket : connection->sockets)
+    QVector<QTcpSocket *> socs;
+
+    mConnectionsMutex.lock();
+    for (QTcpSocket *soc : mConnections.keys())
     {
-        sendMessage(socket, message);
+        if (mConnections[soc].id == id)
+        {
+            socs.push_back(soc);
+        }
+    }
+    mConnectionsMutex.unlock();
+
+    for (QTcpSocket *soc : socs)
+    {
+        QMetaObject::invokeMethod(soc, [this, soc, message]() mutable
+        {
+            sendMessage(soc, message);
+        });
     }
 }
 
 void ExServer::sendErrorMessage(QTcpSocket *socket, const QString &text)
 {
-    QJsonObject message;
-    message["exnetwork_error"] = text;
-    sendMessage(socket, message);
+    QJsonObject msg;
+    msg["exnetwork_error"] = text;
+    sendMessage(socket, msg);
 }
 
-void ExServer::sendErrorMessage(ExConnection *connection, const QString &text)
+void ExServer::sendErrorMessage(const QString &id, const QString &text)
 {
-    for (QTcpSocket *socket : connection->sockets)
+    QVector<QTcpSocket *> socs;
+
+    mConnectionsMutex.lock();
+    for (QTcpSocket *soc : mConnections.keys())
     {
-        sendErrorMessage(socket, text);
+        if (mConnections[soc].id == id)
+        {
+            socs.push_back(soc);
+        }
+    }
+    mConnectionsMutex.unlock();
+
+    for (QTcpSocket *soc : socs)
+    {
+        QMetaObject::invokeMethod(soc, [this, soc, text]()
+        {
+            sendErrorMessage(soc, text);
+        });
     }
 }
 
-void ExServer::readMessage(QTcpSocket *socket, const QJsonObject &message)
+ExServer::ExServer(quint16 port, QObject *parent) :
+    QTcpServer(parent),
+    mPort(port)
 {
-    Q_UNUSED(socket);
-    Q_UNUSED(message);
+    connect(&mPingTimer, &QTimer::timeout, this, &ExServer::onPingTimerTimeout);
 }
 
-void ExServer::readHttp(QTcpSocket *socket, const QString &http)
+void ExServer::start()
 {
-    Q_UNUSED(socket);
-    Q_UNUSED(http);
-}
-
-ExServer::ExServer(quint16 port, QObject *parent) : QObject(parent)
-{
-    if (mServer.listen(QHostAddress::Any, port))
+    if (listen(QHostAddress::Any, mPort))
     {
-        connect(&mServer, SIGNAL(newConnection()), this,
-                SLOT(onServerNewConnection()));
+        qDebug() << "The server is started";
     }
     else
     {
-        qDebug() << "Server cannot listen";
+        qDebug() << "The server cannot be started";
     }
-    connect(&mPingTimer, SIGNAL(timeout()),
-            this, SLOT(onPingTimerTimeout()));
     mPingTimer.start(mPingIntervalSecs * 1000);
 }
-

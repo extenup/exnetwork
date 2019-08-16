@@ -9,73 +9,55 @@
 #include <QTcpSocket>
 #include <QJsonObject>
 #include <QTimer>
+#include <QThread>
+#include <QMutex>
 
-struct ExConnection
+struct SocketInfo
 {
     QString id;
-    QVector<QTcpSocket *> sockets;
-
-    bool operator == (const QString &id)
-    {
-        return id == this->id;
-    }
-
-    bool operator == (const QTcpSocket *socket)
-    {
-        return std::find(sockets.begin(), sockets.end(), socket) != sockets.end();
-    }
+    QByteArray buffer;
+    qint64 lastActivity;
+    QThread *thread = nullptr;
 };
 
-class ExServer : public QObject
+class ExServer : public QTcpServer
 {
     Q_OBJECT
 
-private:
+protected:
     const int mPingIntervalSecs = 10;
-    const int mPingTimeoutSecs = int(mPingIntervalSecs * 1.5);
+    const int mPingTimeoutSecs = mPingIntervalSecs * 3;
 
-    QTcpServer mServer;
+    quint16 mPort = 0;
     QTimer mPingTimer;
 
-    QVector<ExConnection> mConnections;
-    QMap<QTcpSocket *, QByteArray> mBuffers;
-    QMap<QTcpSocket *, qint64> mLastActivities;
+    QMap<QTcpSocket *, SocketInfo> mConnections;
+    QMutex mConnectionsMutex;
 
-    void deleteSocket(QTcpSocket *socket);
+    void incomingConnection(qintptr socketDescriptor) override;
 
-    void processMessage(QTcpSocket *socket, const QJsonObject &message);
-    void ping(QTcpSocket *socket, const QJsonObject &message);
+    void processMessage(QTcpSocket *socket, QJsonObject &message);
+    void ping(QTcpSocket *socket, QJsonObject &message);
 
 private slots:
-    void onSocketReadyRead();
-    void onSocketDisconnected();
-    void onSocketError(QAbstractSocket::SocketError error);
-    void onServerNewConnection();
     void onPingTimerTimeout();
 
 protected:
-    ExConnection *addSocketToConnection(const QString &id, QTcpSocket *socket);
-    void removeSocketFromConnections(QTcpSocket *socket);
+    void setConnectionId(QTcpSocket *socket, const QString &id);
+    QString getConnectionIdBySocket(QTcpSocket *socket);
+    bool isOnline(const QString &id);
 
-    ExConnection *getConnection(const QString &id);
-    ExConnection *getConnection(const QTcpSocket *socket);
-
-    void sendMessage(QTcpSocket *socket, const QJsonObject &message);
-    void sendMessage(ExConnection *connection, const QJsonObject &message);
+    void sendMessage(QTcpSocket *socket, QJsonObject &message);
+    void sendMessage(const QString &id, QJsonObject &message);
 
     void sendErrorMessage(QTcpSocket *socket, const QString &text);
-    void sendErrorMessage(ExConnection *connection, const QString &text);
+    void sendErrorMessage(const QString &id, const QString &text);
 
-    virtual void readMessage(QTcpSocket *socket, const QJsonObject &message);
-    virtual void readHttp(QTcpSocket *socket, const QString &http);
+    virtual void readMessage(QTcpSocket *socket, QJsonObject &message) = 0;
 
 public:
     ExServer(quint16 port, QObject *parent = nullptr);
-
-signals:
-    void connectionAddedEvent(const QString &id);
-    void connectionRemovedEvent(const QString &id);
+    virtual void start();
 };
 
 #endif // EXSERVER_H
-
