@@ -126,6 +126,11 @@ void ExServer::sendMessage(QTcpSocket *socket, QJsonObject &message)
     mConnectionsMutex.unlock();
 }
 
+void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
+{
+    sendMessage(socket, message);
+}
+
 void ExServer::sendMessage(const QString &id, QJsonObject &message)
 {
     QVector<QTcpSocket *> socs;
@@ -142,9 +147,22 @@ void ExServer::sendMessage(const QString &id, QJsonObject &message)
 
     for (QTcpSocket *soc : socs)
     {
-        QMetaObject::invokeMethod(soc, [this, soc, message]() mutable
+        bool b0 = soc->isOpen();
+        bool b1 = soc->isValid();
+
+        QMetaObject::invokeMethod(soc, [this]()
         {
-            sendMessage(soc, message);
+            QString str = "hhh";
+        });
+
+        QMetaObject::invokeMethod(soc, [this, soc]()
+        {
+            QTcpSocket *s = soc;
+        });
+
+        QMetaObject::invokeMethod(soc, [this, soc, message]()
+        {
+            sendMessage2(soc, message);
         });
     }
 }

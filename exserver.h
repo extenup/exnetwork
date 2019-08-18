@@ -48,6 +48,7 @@ protected:
     bool isOnline(const QString &id);
 
     void sendMessage(QTcpSocket *socket, QJsonObject &message);
+    void sendMessage2(QTcpSocket *socket, QJsonObject message);
     void sendMessage(const QString &id, QJsonObject &message);
 
     void sendErrorMessage(QTcpSocket *socket, const QString &text);
