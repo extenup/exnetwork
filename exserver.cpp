@@ -2,6 +2,21 @@
 #include <QJsonDocument>
 #include <QDateTime>
 
+void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
+{
+    if (socket->state() == QTcpSocket::ConnectedState)
+    {
+        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
+    }
+}
+
+void ExServer::sendErrorMessage2(QTcpSocket *socket, QString text)
+{
+    QJsonObject msg;
+    msg["exnetwork_error"] = text;
+    sendMessage2(socket, msg);
+}
+
 void ExServer::incomingConnection(qintptr socketDescriptor)
 {
     QThread *thr = new QThread();
@@ -126,45 +141,20 @@ void ExServer::sendMessage(QTcpSocket *socket, QJsonObject &message)
     mConnectionsMutex.unlock();
 }
 
-void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
-{
-    sendMessage(socket, message);
-}
-
 void ExServer::sendMessage(const QString &id, QJsonObject &message)
 {
-    QVector<QTcpSocket *> socs;
-
     mConnectionsMutex.lock();
     for (QTcpSocket *soc : mConnections.keys())
     {
         if (mConnections[soc].id == id)
         {
-            socs.push_back(soc);
+            QMetaObject::invokeMethod(soc, [this, soc, message]()
+            {
+                sendMessage2(soc, message);
+            });
         }
     }
     mConnectionsMutex.unlock();
-
-    for (QTcpSocket *soc : socs)
-    {
-        bool b0 = soc->isOpen();
-        bool b1 = soc->isValid();
-
-        QMetaObject::invokeMethod(soc, [this]()
-        {
-            QString str = "hhh";
-        });
-
-        QMetaObject::invokeMethod(soc, [this, soc]()
-        {
-            QTcpSocket *s = soc;
-        });
-
-        QMetaObject::invokeMethod(soc, [this, soc, message]()
-        {
-            sendMessage2(soc, message);
-        });
-    }
 }
 
 void ExServer::sendErrorMessage(QTcpSocket *socket, const QString &text)
@@ -176,25 +166,18 @@ void ExServer::sendErrorMessage(QTcpSocket *socket, const QString &text)
 
 void ExServer::sendErrorMessage(const QString &id, const QString &text)
 {
-    QVector<QTcpSocket *> socs;
-
     mConnectionsMutex.lock();
     for (QTcpSocket *soc : mConnections.keys())
     {
         if (mConnections[soc].id == id)
         {
-            socs.push_back(soc);
+            QMetaObject::invokeMethod(soc, [this, soc, text]()
+            {
+                sendErrorMessage2(soc, text);
+            });
         }
     }
     mConnectionsMutex.unlock();
-
-    for (QTcpSocket *soc : socs)
-    {
-        QMetaObject::invokeMethod(soc, [this, soc, text]()
-        {
-            sendErrorMessage(soc, text);
-        });
-    }
 }
 
 ExServer::ExServer(quint16 port, QObject *parent) :

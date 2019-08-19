@@ -24,7 +24,10 @@ class ExServer : public QTcpServer
 {
     Q_OBJECT
 
-protected:
+private:
+    void sendMessage2(QTcpSocket *socket, QJsonObject message);
+    void sendErrorMessage2(QTcpSocket *socket, QString text);
+
     const int mPingIntervalSecs = 10;
     const int mPingTimeoutSecs = mPingIntervalSecs * 3;
 
@@ -48,7 +51,6 @@ protected:
     bool isOnline(const QString &id);
 
     void sendMessage(QTcpSocket *socket, QJsonObject &message);
-    void sendMessage2(QTcpSocket *socket, QJsonObject message);
     void sendMessage(const QString &id, QJsonObject &message);
 
     void sendErrorMessage(QTcpSocket *socket, const QString &text);
