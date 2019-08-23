@@ -19,43 +19,56 @@ void ExServer::sendErrorMessage2(QTcpSocket *socket, QString text)
 
 void ExServer::incomingConnection(qintptr socketDescriptor)
 {
-    QThread *thr = new QThread();
     QTcpSocket *soc = new QTcpSocket();
-
-    soc->setSocketDescriptor(socketDescriptor);
-    soc->moveToThread(thr);
-
-    SocketInfo socInf;
-    socInf.lastActivity = QDateTime::currentSecsSinceEpoch();
-    socInf.thread = thr;
-    mConnectionsMutex.lock();
-    mConnections[soc] = socInf;
-    mConnectionsMutex.unlock();
-
-    connect(thr, &QThread::finished, thr, &QThread::deleteLater);
-    connect(thr, &QThread::finished, soc, &QTcpSocket::deleteLater);
-    connect(soc, &QTcpSocket::readyRead, [this, soc]()
+    if (soc->setSocketDescriptor(socketDescriptor))
     {
-        mConnectionsMutex.lock();
-        mConnections[soc].buffer += soc->readAll();
-        QList<QByteArray> msgs = mConnections[soc].buffer.split('\n');
-        if (msgs.size() > 1)
-        {
-            mConnections[soc].buffer = msgs.last();
-            msgs.pop_back();
-        }
-        mConnectionsMutex.unlock();
-        for (int i = 0; i < msgs.size(); i++)
-        {
-            QJsonObject msg = QJsonDocument::fromJson(msgs[i]).object();
-            if (!msg.isEmpty())
-            {
-                processMessage(soc, msg);
-            }
-        }
-    });
+        QThread *thr = new QThread();
+        soc->moveToThread(thr);
 
-    thr->start();
+        connect(thr, &QThread::finished, soc, &QTcpSocket::deleteLater);
+        connect(soc, &QTcpSocket::destroyed, thr, &QThread::deleteLater);
+
+        SocketInfo socInf;
+        socInf.lastActivity = QDateTime::currentSecsSinceEpoch();
+        socInf.thread = thr;
+        mConnectionsMutex.lock();
+        mConnections[soc] = socInf;
+        mConnectionsMutex.unlock();
+
+        connect(soc, &QTcpSocket::readyRead, [this, soc]()
+        {
+            QList<QByteArray> msgs;
+
+            mConnectionsMutex.lock();
+            if (mConnections.contains(soc))
+            {
+                mConnections[soc].buffer += soc->readAll();
+                msgs = mConnections[soc].buffer.split('\n');
+                if (msgs.size() > 1)
+                {
+                    mConnections[soc].buffer = msgs.last();
+                    msgs.pop_back();
+                }
+            }
+            mConnectionsMutex.unlock();
+
+            for (int i = 0; i < msgs.size(); i++)
+            {
+                QJsonObject msg = QJsonDocument::fromJson(msgs[i]).object();
+                if (!msg.isEmpty())
+                {
+                    processMessage(soc, msg);
+                }
+            }
+        });
+
+        thr->start();
+    }
+    else
+    {
+        soc->deleteLater();
+        qDebug() << "setSocketDescriptor ERROR" << Q_FUNC_INFO;
+    }
 }
 
 void ExServer::processMessage(QTcpSocket *socket, QJsonObject &message)
@@ -80,8 +93,8 @@ void ExServer::ping(QTcpSocket *socket, QJsonObject &message)
 
 void ExServer::onPingTimerTimeout()
 {
-    qint64 secs = QDateTime::currentSecsSinceEpoch();
     mConnectionsMutex.lock();
+    qint64 secs = QDateTime::currentSecsSinceEpoch();
     for (QTcpSocket *soc : mConnections.keys())
     {
         if (secs - mConnections[soc].lastActivity > mPingTimeoutSecs)
@@ -103,7 +116,7 @@ void ExServer::setConnectionId(QTcpSocket *socket, const QString &id)
     mConnectionsMutex.unlock();
 }
 
-QString ExServer::getConnectionIdBySocket(QTcpSocket *socket)
+QString ExServer::getConnectionId(QTcpSocket *socket)
 {
     QString id;
     mConnectionsMutex.lock();
@@ -113,6 +126,19 @@ QString ExServer::getConnectionIdBySocket(QTcpSocket *socket)
     }
     mConnectionsMutex.unlock();
     return id;
+}
+
+void ExServer::getConnectionIds(QStringList &connectionIds)
+{
+    mConnectionsMutex.lock();
+    for (QTcpSocket *soc : mConnections.keys())
+    {
+        if (!connectionIds.contains(mConnections[soc].id))
+        {
+            connectionIds.push_back(mConnections[soc].id);
+        }
+    }
+    mConnectionsMutex.unlock();
 }
 
 bool ExServer::isOnline(const QString &id)

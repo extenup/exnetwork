@@ -47,7 +47,8 @@ private slots:
 
 protected:
     void setConnectionId(QTcpSocket *socket, const QString &id);
-    QString getConnectionIdBySocket(QTcpSocket *socket);
+    QString getConnectionId(QTcpSocket *socket);
+    void getConnectionIds(QStringList &connectionIds);
     bool isOnline(const QString &id);
 
     void sendMessage(QTcpSocket *socket, QJsonObject &message);
