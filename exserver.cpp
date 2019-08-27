@@ -2,21 +2,6 @@
 #include <QJsonDocument>
 #include <QDateTime>
 
-void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
-{
-    if (socket->state() == QTcpSocket::ConnectedState)
-    {
-        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
-    }
-}
-
-void ExServer::sendErrorMessage2(QTcpSocket *socket, QString text)
-{
-    QJsonObject msg;
-    msg["exnetwork_error"] = text;
-    sendMessage2(socket, msg);
-}
-
 void ExServer::incomingConnection(qintptr socketDescriptor)
 {
     QTcpSocket *soc = new QTcpSocket();
@@ -89,6 +74,21 @@ void ExServer::ping(QTcpSocket *socket, QJsonObject &message)
     }
     mConnectionsMutex.unlock();
     sendMessage(socket, message);
+}
+
+void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
+{
+    if (socket->state() == QTcpSocket::ConnectedState)
+    {
+        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
+    }
+}
+
+void ExServer::sendErrorMessage2(QTcpSocket *socket, QString text)
+{
+    QJsonObject msg;
+    msg["exnetwork_error"] = text;
+    sendMessage2(socket, msg);
 }
 
 void ExServer::onPingTimerTimeout()
@@ -204,6 +204,14 @@ void ExServer::sendErrorMessage(const QString &id, const QString &text)
         }
     }
     mConnectionsMutex.unlock();
+}
+
+int ExServer::connectionsCount()
+{
+    mConnectionsMutex.lock();
+    int cc = mConnections.size();
+    mConnectionsMutex.unlock();
+    return cc;
 }
 
 ExServer::ExServer(quint16 port, QObject *parent) :

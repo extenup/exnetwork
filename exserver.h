@@ -25,9 +25,6 @@ class ExServer : public QTcpServer
     Q_OBJECT
 
 private:
-    void sendMessage2(QTcpSocket *socket, QJsonObject message);
-    void sendErrorMessage2(QTcpSocket *socket, QString text);
-
     const int mPingIntervalSecs = 10;
     const int mPingTimeoutSecs = mPingIntervalSecs * 3;
 
@@ -41,6 +38,8 @@ private:
 
     void processMessage(QTcpSocket *socket, QJsonObject &message);
     void ping(QTcpSocket *socket, QJsonObject &message);
+    void sendMessage2(QTcpSocket *socket, QJsonObject message);
+    void sendErrorMessage2(QTcpSocket *socket, QString text);
 
 private slots:
     void onPingTimerTimeout();
@@ -56,6 +55,8 @@ protected:
 
     void sendErrorMessage(QTcpSocket *socket, const QString &text);
     void sendErrorMessage(const QString &id, const QString &text);
+
+    int connectionsCount();
 
     virtual void readMessage(QTcpSocket *socket, QJsonObject &message) = 0;
 
