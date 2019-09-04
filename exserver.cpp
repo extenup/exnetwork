@@ -212,12 +212,16 @@ void ExServer::sendErrorMessage(const QString &id, const QString &text)
     mConnectionsMutex.unlock();
 }
 
-ExServer::ExServer(quint16 port, int maxThreadsCount, QObject *parent) :
+ExServer::ExServer(quint16 port, QObject *parent) :
     QTcpServer(parent),
-    mMaxThreadCount(maxThreadsCount),
     mPort(port)
 {
     connect(&mPingTimer, &QTimer::timeout, this, &ExServer::onPingTimerTimeout);
+}
+
+void ExServer::setMaxThreadCount(int maxThreadCount)
+{
+    mMaxThreadCount = maxThreadCount;
 }
 
 void ExServer::start()

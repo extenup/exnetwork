@@ -24,7 +24,7 @@ class ExServer : public QTcpServer
     Q_OBJECT
 
 private:
-    int mMaxThreadCount = 0;
+    int mMaxThreadCount = std::numeric_limits<int>::max();
     int mThreadCount = 0;
 
     void sendMessage2(QTcpSocket *socket, QJsonObject message);
@@ -62,7 +62,8 @@ protected:
     virtual void readMessage(QTcpSocket *socket, QJsonObject &message) = 0;
 
 public:
-    ExServer(quint16 port, int maxThreadsCount = std::numeric_limits<int>::max(), QObject *parent = nullptr);
+    ExServer(quint16 port, QObject *parent = nullptr);
+    void setMaxThreadCount(int maxThreadCount);
     virtual void start();
 };
 
