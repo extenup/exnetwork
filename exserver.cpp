@@ -2,20 +2,42 @@
 #include <QJsonDocument>
 #include <QDateTime>
 
+void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
+{
+    if (socket->state() == QTcpSocket::ConnectedState)
+    {
+        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
+    }
+}
+
+void ExServer::sendErrorMessage2(QTcpSocket *socket, QString text)
+{
+    QJsonObject msg;
+    msg["exnetwork_error"] = text;
+    sendMessage2(socket, msg);
+}
+
 void ExServer::incomingConnection(qintptr socketDescriptor)
 {
     QTcpSocket *soc = new QTcpSocket();
     if (soc->setSocketDescriptor(socketDescriptor))
     {
-        QThread *thr = new QThread();
-        soc->moveToThread(thr);
-
-        connect(thr, &QThread::finished, soc, &QTcpSocket::deleteLater);
-        connect(soc, &QTcpSocket::destroyed, thr, &QThread::deleteLater);
+        if (mThreadCount < mMaxThreadCount)
+        {
+            QThread *thr = new QThread();
+            ++mThreadCount;
+            soc->moveToThread(thr);
+            connect(soc, &QTcpSocket::destroyed, thr, &QThread::quit);
+            connect(thr, &QThread::finished, thr, &QThread::deleteLater);
+            connect(thr, &QThread::destroyed, [this]()
+            {
+                --mThreadCount;
+            });
+            thr->start();
+        }
 
         SocketInfo socInf;
         socInf.lastActivity = QDateTime::currentSecsSinceEpoch();
-        socInf.thread = thr;
         mConnectionsMutex.lock();
         mConnections[soc] = socInf;
         mConnectionsMutex.unlock();
@@ -46,8 +68,6 @@ void ExServer::incomingConnection(qintptr socketDescriptor)
                 }
             }
         });
-
-        thr->start();
     }
     else
     {
@@ -76,21 +96,6 @@ void ExServer::ping(QTcpSocket *socket, QJsonObject &message)
     sendMessage(socket, message);
 }
 
-void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
-{
-    if (socket->state() == QTcpSocket::ConnectedState)
-    {
-        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
-    }
-}
-
-void ExServer::sendErrorMessage2(QTcpSocket *socket, QString text)
-{
-    QJsonObject msg;
-    msg["exnetwork_error"] = text;
-    sendMessage2(socket, msg);
-}
-
 void ExServer::onPingTimerTimeout()
 {
     mConnectionsMutex.lock();
@@ -99,8 +104,8 @@ void ExServer::onPingTimerTimeout()
     {
         if (secs - mConnections[soc].lastActivity > mPingTimeoutSecs)
         {
-            mConnections[soc].thread->quit();
             mConnections.remove(soc);
+            soc->deleteLater();
         }
     }
     mConnectionsMutex.unlock();
@@ -162,7 +167,8 @@ void ExServer::sendMessage(QTcpSocket *socket, QJsonObject &message)
     mConnectionsMutex.lock();
     if (mConnections.contains(socket) && socket->state() == QTcpSocket::ConnectedState)
     {
-        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
+        QByteArray buf = QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n';
+        socket->write(buf);
     }
     mConnectionsMutex.unlock();
 }
@@ -206,16 +212,9 @@ void ExServer::sendErrorMessage(const QString &id, const QString &text)
     mConnectionsMutex.unlock();
 }
 
-int ExServer::connectionsCount()
-{
-    mConnectionsMutex.lock();
-    int cc = mConnections.size();
-    mConnectionsMutex.unlock();
-    return cc;
-}
-
-ExServer::ExServer(quint16 port, QObject *parent) :
+ExServer::ExServer(quint16 port, int maxThreadsCount, QObject *parent) :
     QTcpServer(parent),
+    mMaxThreadCount(maxThreadsCount),
     mPort(port)
 {
     connect(&mPingTimer, &QTimer::timeout, this, &ExServer::onPingTimerTimeout);

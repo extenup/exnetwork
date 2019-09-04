@@ -17,7 +17,6 @@ struct SocketInfo
     QString id;
     QByteArray buffer;
     qint64 lastActivity;
-    QThread *thread = nullptr;
 };
 
 class ExServer : public QTcpServer
@@ -25,6 +24,12 @@ class ExServer : public QTcpServer
     Q_OBJECT
 
 private:
+    int mMaxThreadCount = 0;
+    int mThreadCount = 0;
+
+    void sendMessage2(QTcpSocket *socket, QJsonObject message);
+    void sendErrorMessage2(QTcpSocket *socket, QString text);
+
     const int mPingIntervalSecs = 10;
     const int mPingTimeoutSecs = mPingIntervalSecs * 3;
 
@@ -38,8 +43,6 @@ private:
 
     void processMessage(QTcpSocket *socket, QJsonObject &message);
     void ping(QTcpSocket *socket, QJsonObject &message);
-    void sendMessage2(QTcpSocket *socket, QJsonObject message);
-    void sendErrorMessage2(QTcpSocket *socket, QString text);
 
 private slots:
     void onPingTimerTimeout();
@@ -56,12 +59,10 @@ protected:
     void sendErrorMessage(QTcpSocket *socket, const QString &text);
     void sendErrorMessage(const QString &id, const QString &text);
 
-    int connectionsCount();
-
     virtual void readMessage(QTcpSocket *socket, QJsonObject &message) = 0;
 
 public:
-    ExServer(quint16 port, QObject *parent = nullptr);
+    ExServer(quint16 port, int maxThreadsCount = std::numeric_limits<int>::max(), QObject *parent = nullptr);
     virtual void start();
 };
 
