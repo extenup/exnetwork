@@ -3,13 +3,11 @@
 
 #include <QObject>
 #include <QString>
-#include <QVector>
 #include <QMap>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QJsonObject>
 #include <QTimer>
-#include <QThread>
 #include <QMutex>
 
 struct SocketInfo

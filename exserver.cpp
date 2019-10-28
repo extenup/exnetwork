@@ -1,6 +1,7 @@
 #include "exserver.h"
 #include <QJsonDocument>
 #include <QDateTime>
+#include <QThread>
 
 void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
 {
