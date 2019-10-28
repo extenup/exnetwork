@@ -40,12 +40,13 @@ private:
     int mMaxRequestsPerMinute = std::numeric_limits<int>::max();
     QString mBanList;
     QMap<QString, int> mRequestsPerMinute;
+    QMutex mRequestsPerMinuteMutex;
     QTimer mClearRequestsPerMinuteTimer;
 
     void incomingConnection(qintptr socketDescriptor) override;
 
     void addLog(const QString &text);
-    
+
     void processMessage(QTcpSocket *socket, QJsonObject &message);
     void ping(QTcpSocket *socket, QJsonObject &message);
 

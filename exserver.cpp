@@ -104,9 +104,12 @@ void ExServer::addLog(const QString &text)
 void ExServer::processMessage(QTcpSocket *socket, QJsonObject &message)
 {
     QString peerAddress = socket->peerAddress().toString();
-    mRequestsPerMinute[peerAddress]++;
 
-    if (mRequestsPerMinute[peerAddress] < mMaxRequestsPerMinute)
+    mRequestsPerMinuteMutex.lock();
+    int msgCount = mRequestsPerMinute[peerAddress]++;
+    mRequestsPerMinuteMutex.unlock();
+
+    if (msgCount < mMaxRequestsPerMinute)
     {
         if (message.contains("exnetwork_ping"))
         {
@@ -259,7 +262,9 @@ ExServer::ExServer(quint16 port, QObject *parent) :
     connect(&mPingTimer, &QTimer::timeout, this, &ExServer::onPingTimerTimeout);
     connect(&mClearRequestsPerMinuteTimer, &QTimer::timeout, this, [this]()
     {
+        mRequestsPerMinuteMutex.lock();
         mRequestsPerMinute.clear();
+        mRequestsPerMinuteMutex.unlock();
     });
     mClearRequestsPerMinuteTimer.start(60000);
 }
