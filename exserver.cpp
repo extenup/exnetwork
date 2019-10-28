@@ -2,6 +2,7 @@
 #include <QJsonDocument>
 #include <QDateTime>
 #include <QThread>
+#include <QFile>
 
 void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
 {
@@ -23,52 +24,59 @@ void ExServer::incomingConnection(qintptr socketDescriptor)
     QTcpSocket *soc = new QTcpSocket();
     if (soc->setSocketDescriptor(socketDescriptor))
     {
-        if (mThreadCount < mMaxThreadCount)
+        if (!mBanList.contains(soc->peerAddress().toString()))
         {
-            QThread *thr = new QThread();
-            ++mThreadCount;
-            soc->moveToThread(thr);
-            connect(soc, &QTcpSocket::destroyed, thr, &QThread::quit);
-            connect(thr, &QThread::finished, thr, &QThread::deleteLater);
-            connect(thr, &QThread::destroyed, [this]()
+            if (mThreadCount < mMaxThreadCount)
             {
-                --mThreadCount;
-            });
-            thr->start();
-        }
-
-        SocketInfo socInf;
-        socInf.lastActivity = QDateTime::currentSecsSinceEpoch();
-        mConnectionsMutex.lock();
-        mConnections[soc] = socInf;
-        mConnectionsMutex.unlock();
-
-        connect(soc, &QTcpSocket::readyRead, [this, soc]()
-        {
-            QList<QByteArray> msgs;
-
-            mConnectionsMutex.lock();
-            if (mConnections.contains(soc))
-            {
-                mConnections[soc].buffer += soc->readAll();
-                msgs = mConnections[soc].buffer.split('\n');
-                if (msgs.size() > 1)
+                QThread *thr = new QThread();
+                ++mThreadCount;
+                soc->moveToThread(thr);
+                connect(soc, &QTcpSocket::destroyed, thr, &QThread::quit);
+                connect(thr, &QThread::finished, thr, &QThread::deleteLater);
+                connect(thr, &QThread::destroyed, [this]()
                 {
-                    mConnections[soc].buffer = msgs.last();
-                    msgs.pop_back();
-                }
+                    --mThreadCount;
+                });
+                thr->start();
             }
+
+            SocketInfo socInf;
+            socInf.lastActivity = QDateTime::currentSecsSinceEpoch();
+            mConnectionsMutex.lock();
+            mConnections[soc] = socInf;
             mConnectionsMutex.unlock();
 
-            for (int i = 0; i < msgs.size(); i++)
+            connect(soc, &QTcpSocket::readyRead, [this, soc]()
             {
-                QJsonObject msg = QJsonDocument::fromJson(msgs[i]).object();
-                if (!msg.isEmpty())
+                QList<QByteArray> msgs;
+
+                mConnectionsMutex.lock();
+                if (mConnections.contains(soc))
                 {
-                    processMessage(soc, msg);
+                    mConnections[soc].buffer += soc->readAll();
+                    msgs = mConnections[soc].buffer.split('\n');
+                    if (msgs.size() > 1)
+                    {
+                        mConnections[soc].buffer = msgs.last();
+                        msgs.pop_back();
+                    }
                 }
-            }
-        });
+                mConnectionsMutex.unlock();
+
+                for (int i = 0; i < msgs.size(); i++)
+                {
+                    QJsonObject msg = QJsonDocument::fromJson(msgs[i]).object();
+                    if (!msg.isEmpty())
+                    {
+                        processMessage(soc, msg);
+                    }
+                }
+            });
+        }
+        else
+        {
+            soc->deleteLater();
+        }
     }
     else
     {
@@ -77,13 +85,44 @@ void ExServer::incomingConnection(qintptr socketDescriptor)
     }
 }
 
+void ExServer::addLog(const QString &text)
+{
+    QFile file("exserver.log");
+    if (file.open(QFile::Append))
+    {
+        file.write(QString("%0 %1\n")
+                   .arg(QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd hh:mm:ss"))
+                   .arg(text).toUtf8());
+        file.close();
+    }
+    else
+    {
+        qDebug() << "Cannot open" << file.fileName() << "file";
+    }
+}
+
 void ExServer::processMessage(QTcpSocket *socket, QJsonObject &message)
 {
-    if (message.contains("exnetwork_ping"))
+    QString peerAddress = socket->peerAddress().toString();
+    mRequestsPerMinute[peerAddress]++;
+
+    if (mRequestsPerMinute[peerAddress] < mMaxRequestsPerMinute)
     {
-        ping(socket, message);
+        if (message.contains("exnetwork_ping"))
+        {
+            ping(socket, message);
+        }
+        readMessage(socket, message);
     }
-    readMessage(socket, message);
+    else
+    {
+        if (!mBanList.contains(peerAddress))
+        {
+            mBanList.push_back(peerAddress);
+            socket->disconnectFromHost();
+            addLog(QString("Ban %0").arg(peerAddress).toUtf8());
+        }
+    }
 }
 
 void ExServer::ping(QTcpSocket *socket, QJsonObject &message)
@@ -218,6 +257,11 @@ ExServer::ExServer(quint16 port, QObject *parent) :
     mPort(port)
 {
     connect(&mPingTimer, &QTimer::timeout, this, &ExServer::onPingTimerTimeout);
+    connect(&mClearRequestsPerMinuteTimer, &QTimer::timeout, this, [this]()
+    {
+        mRequestsPerMinute.clear();
+    });
+    mClearRequestsPerMinuteTimer.start(60000);
 }
 
 void ExServer::setMaxThreadCount(int maxThreadCount)
@@ -236,4 +280,14 @@ void ExServer::start()
         qDebug() << "The server cannot be started";
     }
     mPingTimer.start(mPingIntervalSecs * 1000);
+}
+
+int ExServer::connectionsCount()
+{
+    return mConnections.count();
+}
+
+void ExServer::setMaxRequestsPerMinute(int maxRequestsPerMinute)
+{
+    mMaxRequestsPerMinute = maxRequestsPerMinute;
 }

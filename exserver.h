@@ -37,8 +37,15 @@ private:
     QMap<QTcpSocket *, SocketInfo> mConnections;
     QMutex mConnectionsMutex;
 
+    int mMaxRequestsPerMinute = std::numeric_limits<int>::max();
+    QString mBanList;
+    QMap<QString, int> mRequestsPerMinute;
+    QTimer mClearRequestsPerMinuteTimer;
+
     void incomingConnection(qintptr socketDescriptor) override;
 
+    void addLog(const QString &text);
+    
     void processMessage(QTcpSocket *socket, QJsonObject &message);
     void ping(QTcpSocket *socket, QJsonObject &message);
 
@@ -63,6 +70,8 @@ public:
     ExServer(quint16 port, QObject *parent = nullptr);
     void setMaxThreadCount(int maxThreadCount);
     virtual void start();
+    int connectionsCount();
+    void setMaxRequestsPerMinute(int maxRequestsPerMinute);
 };
 
 #endif // EXSERVER_H
