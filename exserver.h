@@ -25,11 +25,9 @@ private:
     int mMaxThreadCount = std::numeric_limits<int>::max();
     int mThreadCount = 0;
 
-    void sendMessage2(QTcpSocket *socket, QJsonObject message);
-    void sendErrorMessage2(QTcpSocket *socket, QString text);
-
     const int mPingIntervalSecs = 10;
     const int mPingTimeoutSecs = mPingIntervalSecs * 3;
+    const QString mLogPath = "./exserver.log";
 
     quint16 mPort = 0;
     QTimer mPingTimer;
@@ -46,6 +44,9 @@ private:
     void incomingConnection(qintptr socketDescriptor) override;
 
     void addLog(const QString &text);
+
+    void sendMessage2(QTcpSocket *socket, QJsonObject message);
+    void sendErrorMessage2(QTcpSocket *socket, QString text);
 
     void processMessage(QTcpSocket *socket, QJsonObject &message);
     void ping(QTcpSocket *socket, QJsonObject &message);
@@ -76,3 +77,4 @@ public:
 };
 
 #endif // EXSERVER_H
+

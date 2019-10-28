@@ -4,21 +4,6 @@
 #include <QThread>
 #include <QFile>
 
-void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
-{
-    if (socket->state() == QTcpSocket::ConnectedState)
-    {
-        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
-    }
-}
-
-void ExServer::sendErrorMessage2(QTcpSocket *socket, QString text)
-{
-    QJsonObject msg;
-    msg["exnetwork_error"] = text;
-    sendMessage2(socket, msg);
-}
-
 void ExServer::incomingConnection(qintptr socketDescriptor)
 {
     QTcpSocket *soc = new QTcpSocket();
@@ -99,6 +84,21 @@ void ExServer::addLog(const QString &text)
     {
         qDebug() << "Cannot open" << file.fileName() << "file";
     }
+}
+
+void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
+{
+    if (socket->state() == QTcpSocket::ConnectedState)
+    {
+        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
+    }
+}
+
+void ExServer::sendErrorMessage2(QTcpSocket *socket, QString text)
+{
+    QJsonObject msg;
+    msg["exnetwork_error"] = text;
+    sendMessage2(socket, msg);
 }
 
 void ExServer::processMessage(QTcpSocket *socket, QJsonObject &message)
@@ -259,6 +259,7 @@ ExServer::ExServer(quint16 port, QObject *parent) :
     QTcpServer(parent),
     mPort(port)
 {
+    QFile::remove(mLogPath);
     connect(&mPingTimer, &QTimer::timeout, this, &ExServer::onPingTimerTimeout);
     connect(&mClearRequestsPerMinuteTimer, &QTimer::timeout, this, [this]()
     {
@@ -296,3 +297,4 @@ void ExServer::setMaxRequestsPerMinute(int maxRequestsPerMinute)
 {
     mMaxRequestsPerMinute = maxRequestsPerMinute;
 }
+
