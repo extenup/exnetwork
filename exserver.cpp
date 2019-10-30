@@ -72,12 +72,14 @@ void ExServer::incomingConnection(qintptr socketDescriptor)
 
 void ExServer::addLog(const QString &text)
 {
+    QString logText = QString("%0 %1")
+            .arg(QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd hh:mm:ss"))
+            .arg(text);
+    qDebug() << logText;
     QFile file("exserver.log");
     if (file.open(QFile::Append))
     {
-        file.write(QString("%0 %1\n")
-                   .arg(QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd hh:mm:ss"))
-                   .arg(text).toUtf8());
+        file.write((logText + "\n").toUtf8());
         file.close();
     }
     else
@@ -122,7 +124,12 @@ void ExServer::processMessage(QTcpSocket *socket, QJsonObject &message)
         if (!mBanList.contains(peerAddress))
         {
             mBanList.push_back(peerAddress);
-            socket->disconnectFromHost();
+
+            mConnectionsMutex.lock();
+            mConnections.remove(socket);
+            mConnectionsMutex.unlock();
+            socket->deleteLater();
+
             addLog(QString("Ban %0").arg(peerAddress).toUtf8());
         }
     }
@@ -297,4 +304,3 @@ void ExServer::setMaxRequestsPerMinute(int maxRequestsPerMinute)
 {
     mMaxRequestsPerMinute = maxRequestsPerMinute;
 }
-
