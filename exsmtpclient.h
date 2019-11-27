@@ -1,27 +1,23 @@
 #ifndef EXSMTPCLIENT_H
 #define EXSMTPCLIENT_H
 
-#include <QObject>
 #include <QSslSocket>
-#include <QTimer>
 
 class ExSmtpClient : public QObject
 {
     Q_OBJECT
+
 protected:
-    QSslSocket mSocket;
-    int mStep = 0;
-    QTimer mWaitTimer;
+    QString mUser;
+    QString mPass;
+    QString mHost;
+    quint16 mPort;
 
 public:
-    explicit ExSmtpClient(QObject *parent = nullptr);
-    void sendMessage(const QString &host, quint16 port,
-                     const QString &senderEmail, const QString &password, const QString &senderName,
-                     const QString &recipientEmail,
-                     const QString &subject, const QString &text);
-
-signals:
-    void sendMessageFinishedEvent(bool success);
+    ExSmtpClient(QObject *parent = nullptr);
+    void init(const QString &user, const QString &pass, const QString &host, quint16 port = 465);
+    bool sendMail( const QString &from, const QString &to,
+                   const QString &subject, const QString &body,
+                   QStringList files = QStringList());
 };
-
-#endif // SMTPCLIENT_H
+#endif
