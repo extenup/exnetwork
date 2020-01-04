@@ -72,14 +72,12 @@ void ExServer::incomingConnection(qintptr socketDescriptor)
 
 void ExServer::addLog(const QString &text)
 {
-    QString logText = QString("%0 %1")
-            .arg(QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd hh:mm:ss"))
-            .arg(text);
-    qDebug() << logText;
     QFile file("exserver.log");
     if (file.open(QFile::Append))
     {
-        file.write((logText + "\n").toUtf8());
+        file.write(QString("%0 %1\n")
+                   .arg(QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd hh:mm:ss"))
+                   .arg(text).toUtf8());
         file.close();
     }
     else
@@ -286,13 +284,13 @@ void ExServer::start()
 {
     if (listen(QHostAddress::Any, mPort))
     {
-        qDebug() << "The server is started";
+        startedEvent(true);
+        mPingTimer.start(mPingIntervalSecs * 1000);
     }
     else
     {
-        qDebug() << "The server cannot be started";
+        startedEvent(false);
     }
-    mPingTimer.start(mPingIntervalSecs * 1000);
 }
 
 int ExServer::connectionsCount()

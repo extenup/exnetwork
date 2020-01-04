@@ -74,6 +74,9 @@ public:
     virtual void start();
     int connectionsCount();
     void setMaxRequestsPerMinute(int maxRequestsPerMinute);
+
+signals:
+    void startedEvent(bool ok);
 };
 
 #endif // EXSERVER_H
