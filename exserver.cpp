@@ -1,7 +1,6 @@
 #include "exserver.h"
 #include <QJsonDocument>
 #include <QDateTime>
-#include <QThread>
 #include <QFile>
 
 void ExServer::incomingConnection(qintptr socketDescriptor)
@@ -11,31 +10,14 @@ void ExServer::incomingConnection(qintptr socketDescriptor)
     {
         if (!mBanList.contains(soc->peerAddress().toString()))
         {
-            if (mThreadCount < mMaxThreadCount)
-            {
-                QThread *thr = new QThread();
-                ++mThreadCount;
-                soc->moveToThread(thr);
-                connect(soc, &QTcpSocket::destroyed, thr, &QThread::quit);
-                connect(thr, &QThread::finished, thr, &QThread::deleteLater);
-                connect(thr, &QThread::destroyed, [this]()
-                {
-                    --mThreadCount;
-                });
-                thr->start();
-            }
-
             SocketInfo socInf;
             socInf.lastActivity = QDateTime::currentSecsSinceEpoch();
-            mConnectionsMutex.lock();
             mConnections[soc] = socInf;
-            mConnectionsMutex.unlock();
 
             connect(soc, &QTcpSocket::readyRead, [this, soc]()
             {
                 QList<QByteArray> msgs;
 
-                mConnectionsMutex.lock();
                 if (mConnections.contains(soc))
                 {
                     mConnections[soc].buffer += soc->readAll();
@@ -46,7 +28,6 @@ void ExServer::incomingConnection(qintptr socketDescriptor)
                         msgs.pop_back();
                     }
                 }
-                mConnectionsMutex.unlock();
 
                 for (int i = 0; i < msgs.size(); i++)
                 {
@@ -60,12 +41,12 @@ void ExServer::incomingConnection(qintptr socketDescriptor)
         }
         else
         {
-            soc->deleteLater();
+            deleteSocket(soc);
         }
     }
     else
     {
-        soc->deleteLater();
+        deleteSocket(soc);
         qDebug() << "setSocketDescriptor ERROR" << Q_FUNC_INFO;
     }
 }
@@ -86,28 +67,11 @@ void ExServer::addLog(const QString &text)
     }
 }
 
-void ExServer::sendMessage2(QTcpSocket *socket, QJsonObject message)
-{
-    if (socket->state() == QTcpSocket::ConnectedState)
-    {
-        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
-    }
-}
-
-void ExServer::sendErrorMessage2(QTcpSocket *socket, QString text)
-{
-    QJsonObject msg;
-    msg["exnetwork_error"] = text;
-    sendMessage2(socket, msg);
-}
-
 void ExServer::processMessage(QTcpSocket *socket, QJsonObject &message)
 {
     QString peerAddress = socket->peerAddress().toString();
 
-    mRequestsPerMinuteMutex.lock();
     int msgCount = mRequestsPerMinute[peerAddress]++;
-    mRequestsPerMinuteMutex.unlock();
 
     if (msgCount < mMaxRequestsPerMinute)
     {
@@ -122,12 +86,7 @@ void ExServer::processMessage(QTcpSocket *socket, QJsonObject &message)
         if (!mBanList.contains(peerAddress))
         {
             mBanList.push_back(peerAddress);
-
-            mConnectionsMutex.lock();
-            mConnections.remove(socket);
-            mConnectionsMutex.unlock();
-            socket->deleteLater();
-
+            deleteSocket(socket);
             addLog(QString("Ban %0").arg(peerAddress).toUtf8());
         }
     }
@@ -135,55 +94,72 @@ void ExServer::processMessage(QTcpSocket *socket, QJsonObject &message)
 
 void ExServer::ping(QTcpSocket *socket, QJsonObject &message)
 {
-    mConnectionsMutex.lock();
     if (mConnections.contains(socket))
     {
         mConnections[socket].lastActivity = QDateTime::currentSecsSinceEpoch();
     }
-    mConnectionsMutex.unlock();
     sendMessage(socket, message);
+}
+
+void ExServer::deleteSocket(QTcpSocket *socket)
+{
+    connect(socket, &QTcpSocket::destroyed, this, [this, socket]()
+    {
+        removeOnlineId(socket, mConnections[socket].id);
+        mConnections.remove(socket);
+    });
+    socket->deleteLater();
+}
+
+void ExServer::removeOnlineId(QTcpSocket *socket, QString id)
+{
+    if (mOnlineIds.contains(id))
+    {
+        mOnlineIds[id].removeAll(socket);
+        if (mOnlineIds[id].isEmpty())
+        {
+            mOnlineIds.remove(id);
+        }
+    }
 }
 
 void ExServer::onPingTimerTimeout()
 {
-    mConnectionsMutex.lock();
     qint64 secs = QDateTime::currentSecsSinceEpoch();
     for (QTcpSocket *soc : mConnections.keys())
     {
         if (secs - mConnections[soc].lastActivity > mPingTimeoutSecs)
         {
-            mConnections.remove(soc);
-            soc->deleteLater();
+            deleteSocket(soc);
         }
     }
-    mConnectionsMutex.unlock();
 }
 
 void ExServer::setConnectionId(QTcpSocket *socket, const QString &id)
 {
-    mConnectionsMutex.lock();
     if (mConnections.contains(socket))
     {
+        removeOnlineId(socket, mConnections[socket].id);
+        if (!mOnlineIds[id].contains(socket))
+        {
+            mOnlineIds[id].push_back(socket);
+        }
         mConnections[socket].id = id;
     }
-    mConnectionsMutex.unlock();
 }
 
 QString ExServer::getConnectionId(QTcpSocket *socket)
 {
     QString id;
-    mConnectionsMutex.lock();
     if (mConnections.contains(socket))
     {
         id = mConnections[socket].id;
     }
-    mConnectionsMutex.unlock();
     return id;
 }
 
 void ExServer::getConnectionIds(QStringList &connectionIds)
 {
-    mConnectionsMutex.lock();
     for (QTcpSocket *soc : mConnections.keys())
     {
         if (!connectionIds.contains(mConnections[soc].id))
@@ -191,50 +167,35 @@ void ExServer::getConnectionIds(QStringList &connectionIds)
             connectionIds.push_back(mConnections[soc].id);
         }
     }
-    mConnectionsMutex.unlock();
+}
+
+bool ExServer::isOnline(QTcpSocket *socket)
+{
+    return mConnections.contains(socket);
 }
 
 bool ExServer::isOnline(const QString &id)
 {
-    bool io = false;
-    mConnectionsMutex.lock();
-    for (QTcpSocket *soc : mConnections.keys())
-    {
-        if (mConnections[soc].id == id)
-        {
-            io = true;
-            break;
-        }
-    }
-    mConnectionsMutex.unlock();
-    return io;
+    return mOnlineIds.contains(id);
 }
 
 void ExServer::sendMessage(QTcpSocket *socket, QJsonObject &message)
 {
-    mConnectionsMutex.lock();
     if (mConnections.contains(socket) && socket->state() == QTcpSocket::ConnectedState)
     {
-        QByteArray buf = QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n';
-        socket->write(buf);
+        socket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
     }
-    mConnectionsMutex.unlock();
 }
 
 void ExServer::sendMessage(const QString &id, QJsonObject &message)
 {
-    mConnectionsMutex.lock();
     for (QTcpSocket *soc : mConnections.keys())
     {
         if (mConnections[soc].id == id)
         {
-            QMetaObject::invokeMethod(soc, [this, soc, message]()
-            {
-                sendMessage2(soc, message);
-            });
+            sendMessage(soc, message);
         }
     }
-    mConnectionsMutex.unlock();
 }
 
 void ExServer::sendErrorMessage(QTcpSocket *socket, const QString &text)
@@ -246,18 +207,18 @@ void ExServer::sendErrorMessage(QTcpSocket *socket, const QString &text)
 
 void ExServer::sendErrorMessage(const QString &id, const QString &text)
 {
-    mConnectionsMutex.lock();
     for (QTcpSocket *soc : mConnections.keys())
     {
         if (mConnections[soc].id == id)
         {
-            QMetaObject::invokeMethod(soc, [this, soc, text]()
-            {
-                sendErrorMessage2(soc, text);
-            });
+            sendErrorMessage(soc, text);
         }
     }
-    mConnectionsMutex.unlock();
+}
+
+void ExServer::started(bool ok)
+{
+    Q_UNUSED(ok)
 }
 
 ExServer::ExServer(quint16 port, QObject *parent) :
@@ -268,28 +229,21 @@ ExServer::ExServer(quint16 port, QObject *parent) :
     connect(&mPingTimer, &QTimer::timeout, this, &ExServer::onPingTimerTimeout);
     connect(&mClearRequestsPerMinuteTimer, &QTimer::timeout, this, [this]()
     {
-        mRequestsPerMinuteMutex.lock();
         mRequestsPerMinute.clear();
-        mRequestsPerMinuteMutex.unlock();
     });
     mClearRequestsPerMinuteTimer.start(60000);
-}
-
-void ExServer::setMaxThreadCount(int maxThreadCount)
-{
-    mMaxThreadCount = maxThreadCount;
 }
 
 void ExServer::start()
 {
     if (listen(QHostAddress::Any, mPort))
     {
-        startedEvent(true);
+        started(true);
         mPingTimer.start(mPingIntervalSecs * 1000);
     }
     else
     {
-        startedEvent(false);
+        started(false);
     }
 }
 
