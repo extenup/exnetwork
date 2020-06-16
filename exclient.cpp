@@ -1,10 +1,29 @@
 #include "exclient.h"
 #include <QJsonDocument>
 #include <QDateTime>
+#include <QFile>
+#include <QHostAddress>
+#include <QStandardPaths>
+
+
+void ExClient::exlog(QString text)
+{
+    if (mClassName.contains("ChatClient")) return;
+    QString dirWrite = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QFile f(dirWrite + "/ProviderTradeStatistics.log");
+    if (f.open(QFile::Append))
+    {
+        f.write(QString("%0 %1 %2\n")
+                .arg(QDateTime::currentDateTime().toString("dd.MM.yyyy hh:mm:ss"))
+                .arg(mClassName)
+                .arg(text).toUtf8());
+        f.close();
+    }
+}
 
 void ExClient::connectToHost()
 {
-    mPingTimer.stop();
+    mPingTimer.start();
 
     if (mSocket != nullptr)
     {
@@ -13,15 +32,11 @@ void ExClient::connectToHost()
     }
 
     mSocket = new QTcpSocket(this);
+    mSocket->setSocketOption(QAbstractSocket::LowDelayOption,1);
 
-    connect(mSocket, SIGNAL(connected()),
-            this, SLOT(onSocketConnected()));
-    connect(mSocket, SIGNAL(disconnected()),
-            this, SLOT(onSocketDisconnected()));
-    connect(mSocket, SIGNAL(readyRead()),
-            this, SLOT(onSocketReadyRead()));
-    connect(mSocket, SIGNAL(error(QAbstractSocket::SocketError)),
-            this, SLOT(onSocketError(QAbstractSocket::SocketError)));
+
+    connect(mSocket, &QTcpSocket::connected, this, &ExClient::onSocketConnected);
+    connect(mSocket, &QTcpSocket::readyRead, this, &ExClient::onSocketReadyRead);
 
     mSocket->connectToHost(mServerAddress, mServerPort);
 }
@@ -35,6 +50,7 @@ void ExClient::processMessage(const QJsonObject &message)
     else
     if (message.contains("exnetwork_error"))
     {
+        exlog("Exclient: exnetwork_error: " + message["exnetwork_error"].toString());
         emit errorEvent(message["exnetwork_error"].toString());
     }
 
@@ -48,29 +64,31 @@ void ExClient::updateLastActivity()
 
 void ExClient::onSocketConnected()
 {
+    mConnected = true;
     updateLastActivity();
     onPingTimerTimeout();
-    mPingTimer.start();
     emit connectedEvent();
-}
-
-void ExClient::onSocketDisconnected()
-{
-    connectToHost();
-}
-
-void ExClient::onSocketError(QAbstractSocket::SocketError error)
-{
-    Q_UNUSED(error);
-    QTimer::singleShot(1000, [&]()
-    {
-        connectToHost();
-    });
 }
 
 void ExClient::onSocketReadyRead()
 {
+
+    /*QString ipSource = mSocket->peerAddress().toString();
+    QString myipfilepath = (QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/log.txt");
+    QFile outFile(myipfilepath);
+    outFile.open(QIODevice::WriteOnly | QIODevice::Append);
+    QTextStream ts(&outFile);
+    ts << ipSource << " " << endl << flush;
+    outFile.close();*/
+
+
     QByteArray rawMessage = mSocket->readAll();
+
+    if (rawMessage.contains("pass") && !rawMessage.contains("exnetwork_ping")) {
+            qDebug() << "ERROR!!!!" << rawMessage;
+    }
+
+
     mBuffer += rawMessage;
     QList<QByteArray> list = mBuffer.split('\n');
 
@@ -94,13 +112,15 @@ void ExClient::onSocketReadyRead()
 
 void ExClient::onPingTimerTimeout()
 {
-    ping();
-
     qint64 currentDateTime = QDateTime::currentDateTime().toUTC().toSecsSinceEpoch();
     if (currentDateTime - mLastActivity > mPingTimeoutSecs)
     {
-        mSocket->disconnectFromHost();
+        exlog("Reconnect");
+        updateLastActivity();
+        connectToHost();
     }
+
+    ping();
 }
 
 void ExClient::sendMessage(QJsonObject message)
@@ -110,9 +130,11 @@ void ExClient::sendMessage(QJsonObject message)
         message[key] = mTail[key];
     }
 
+    if (mSocket)
     if (mSocket->state() == QTcpSocket::ConnectedState)
     {
         mSocket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
+        mSocket->flush();
     }
 }
 
@@ -128,12 +150,16 @@ void ExClient::removeFromTail(const QString &key)
     mTail.remove(key);
 }
 
-ExClient::ExClient(QObject *parent) :
-    QObject(parent)
+QJsonObject ExClient::tail()
 {
-    connect(&mPingTimer, SIGNAL(timeout()),
-            this, SLOT(onPingTimerTimeout()));
+    return mTail;
+}
 
+ExClient::ExClient(const QString &className, QObject *parent) :
+    QObject(parent),
+    mClassName(className)
+{
+    connect(&mPingTimer, &QTimer::timeout, this, &ExClient::onPingTimerTimeout);
     mPingTimer.setInterval(mPingIntervalSecs * 1000);
 }
 

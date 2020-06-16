@@ -21,7 +21,13 @@ private:
     QTcpSocket *mSocket = nullptr;
     QByteArray mBuffer;
     qint64 mLastActivity = 0;
+    QString mClassName;
+
+    void exlog(QString text);
+
+protected:
     QJsonObject mTail;
+    bool mConnected = false;
 
     void connectToHost();
 
@@ -30,10 +36,9 @@ private:
 
 private slots:
     void onSocketConnected();
-    void onSocketDisconnected();
-    void onSocketError(QAbstractSocket::SocketError error);
     void onSocketReadyRead();
     void onPingTimerTimeout();
+
 
 protected:
     void sendMessage(QJsonObject message);
@@ -43,11 +48,12 @@ protected:
     template<typename T>
     void addToTail(const QString &key, const T &value) { mTail[key] = value; }
     void removeFromTail(const QString &key);
+    QJsonObject tail();
 
     virtual void readMessage(const QJsonObject &message) = 0;
 
 public:
-    ExClient(QObject *parent = nullptr);
+    ExClient(const QString &className, QObject *parent = nullptr);
     ~ExClient();
     void connectToHost(const QString &serverAddress, quint16 serverPort);
 

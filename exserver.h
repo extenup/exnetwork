@@ -4,71 +4,59 @@
 #include <QObject>
 #include <QString>
 #include <QMap>
-#include <QTcpServer>
-#include <QTcpSocket>
+#include <QVector>
 #include <QJsonObject>
 #include <QTimer>
+//#include <QMutex>
+#include "exsc.h"
 
-struct SocketInfo
+class ExServer
 {
-    QString id;
-    QByteArray buffer;
-    qint64 lastActivity;
-};
-
-class ExServer : public QTcpServer
-{
-    Q_OBJECT
-
 private:
-    const int mPingIntervalSecs = 10;
-    const int mPingTimeoutSecs = mPingIntervalSecs * 3;
-    const QString mLogPath = "./exserver.log";
-
     quint16 mPort = 0;
-    QTimer mPingTimer;
-
-    QMap<QTcpSocket *, SocketInfo> mConnections;
-    QMap<QString, QVector<QTcpSocket *>> mOnlineIds;
-
     int mMaxRequestsPerMinute = std::numeric_limits<int>::max();
+    time_t mRequestsPerMinuteClearTime = 0;
+
+    QMap<int, QByteArray> mBuffers;
+    //QMutex mBuffersMutex;
+
+    QMap<QString, int> mOnline;
+    //QMutex mOnlineMutex;
+
     QString mBanList;
+    //QMutex mBanListMutex;
+
     QMap<QString, int> mRequestsPerMinute;
-    QTimer mClearRequestsPerMinuteTimer;
+    //QMutex mRequestsPerMinuteMutex;
 
-    void incomingConnection(qintptr socketDescriptor) override;
+    int mExscDescriptor = 0;
 
-    void addLog(const QString &text);
+    void addLog(const QString &filename, const QString &text);
 
-    void processMessage(QTcpSocket *socket, QJsonObject &message);
-    void ping(QTcpSocket *socket, QJsonObject &message);
-
-    void deleteSocket(QTcpSocket *socket);
-    void removeOnlineId(QTcpSocket *socket, QString id);
-
-private slots:
-    void onPingTimerTimeout();
+    void processMessage(struct exsc_excon &con, QJsonObject &message);
 
 protected:
-    void setConnectionId(QTcpSocket *socket, const QString &id);
-    QString getConnectionId(QTcpSocket *socket);
-    void getConnectionIds(QStringList &connectionIds);
-    bool isOnline(QTcpSocket *socket);
-    bool isOnline(const QString &id);
+    void init(int exscDescriptor);
 
-    void sendMessage(QTcpSocket *socket, QJsonObject &message);
-    void sendMessage(const QString &id, QJsonObject &message);
+    void setConnectionName(struct exsc_excon &con, const QString &name);
+    void getConnectionsNames(QStringList &connectionIds);
 
-    void sendErrorMessage(QTcpSocket *socket, const QString &text);
-    void sendErrorMessage(const QString &id, const QString &text);
+    void sendMessage(struct exsc_excon &con, QJsonObject &message);
+    void sendMessage(const QString &conName, QJsonObject &message);
 
-    virtual void readMessage(QTcpSocket *socket, QJsonObject &message) = 0;
-    virtual void started(bool ok);
+    void sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode);
+
+    virtual void readMessage(struct exsc_excon &con, QJsonObject &message) = 0;
+    virtual void logout(const QString &conName);
+    virtual void closeConnection(struct exsc_excon &con);
 
 public:
-    ExServer(quint16 port, QObject *parent = nullptr);
-    virtual void start();
+    void exsc_newcon(struct exsc_excon con);
+    void exsc_closecon(struct exsc_excon con);
+    void exsc_recv(struct exsc_excon con, char *buf, int bufsize);
+
     int connectionsCount();
+    bool isOnline(const QString &name);
     void setMaxRequestsPerMinute(int maxRequestsPerMinute);
 };
 
