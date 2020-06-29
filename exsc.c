@@ -75,7 +75,7 @@ void setsocknonblock(int sock)
 #elif _WIN32
     u_long opt;
     opt = 1;
-    ioctlsocket(sock, FIONBIO, &opt);
+    ioctlsocket(listen_sock, FIONBIO, &opt);
 #endif
 }
 
@@ -160,6 +160,7 @@ DWORD WINAPI exsc_listenthr(LPVOID arg)
                     if (config->g_inconmax < i)
                     {
                         config->g_inconmax = i;
+                        printf("%d connections count: %d\n", listenthr_arg->des, config->g_inconmax);
                     }
 
                     config->g_incons[i].excon.ix = i;
@@ -287,7 +288,7 @@ int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int c
 #ifdef __linux__
     pthread_create(&config->g_listenthr, NULL, exsc_listenthr, arg);
 #elif _WIN32
-    config->g_listenthr = CreateThread(NULL, 0, exsc_listenthr, arg, 0, NULL);
+    g_listenthr = CreateThread(NULL, 0, config->exsc_listenthr, arg, 0, NULL);
 #endif
 
     return des;
@@ -354,6 +355,6 @@ void exsc_setconname(int des, struct exsc_excon *excon, char *name)
 
     if (config->g_incons[excon->ix].excon.id == excon->id)
     {
-        strcpy_s(config->g_incons[excon->ix].excon.name, EXSC_CONNAMELEN, name);
+        strcpy(config->g_incons[excon->ix].excon.name, name);
     }
 }
