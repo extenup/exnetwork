@@ -106,10 +106,20 @@ pthread_t crtthr()
 {
     return pthread_self();
 }
+
+void closesock(int sock)
+{
+    close(sock);
+}
 #elif _WIN32
 DWORD crtthr()
 {
     return GetThreadId(GetCurrentThread());
+}
+
+void closesock(int sock)
+{
+    closesocket(sock);
 }
 #endif
 
@@ -207,7 +217,7 @@ DWORD WINAPI exsc_thr(LPVOID arg)
             }
             else
             {
-                closesocket(new_sock);
+                closesock(new_sock);
                 printf("exsc_thr WARNING connections are over\n");
             }
         }
@@ -251,7 +261,7 @@ DWORD WINAPI exsc_thr(LPVOID arg)
                 {
                     serv->callback_closecon(serv->incons[i].excon);
 
-                    closesocket(serv->incons[i].sock);
+                    closesock(serv->incons[i].sock);
                     free(serv->incons[i].recvbuf);
                     if (serv->incons[i].sendbuf != NULL)
                     {
