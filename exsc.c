@@ -48,7 +48,7 @@ struct exsc_srv
 #ifdef __linux__
     pthread_t thr;
 #elif _WIN32
-    HANDLE thr;
+    DWORD thr;
 #endif
 };
 
@@ -90,7 +90,7 @@ void setsocknonblock(int sock)
 #elif _WIN32
     u_long opt;
     opt = 1;
-    ioctlsocket(listen_sock, FIONBIO, &opt);
+    ioctlsocket(sock, FIONBIO, &opt);
 #endif
 }
 
@@ -100,6 +100,18 @@ int getconid()
     conid++;
     return conid;
 }
+
+#ifdef __linux__
+pthread_t crtthr()
+{
+    return pthread_self();
+}
+#elif _WIN32
+DWORD crtthr()
+{
+    return GetThreadId(GetCurrentThread());
+}
+#endif
 
 #ifdef __linux__
 void *exsc_thr(void *arg)
@@ -195,7 +207,7 @@ DWORD WINAPI exsc_thr(LPVOID arg)
             }
             else
             {
-                close(new_sock);
+                closesocket(new_sock);
                 printf("exsc_thr WARNING connections are over\n");
             }
         }
@@ -239,7 +251,7 @@ DWORD WINAPI exsc_thr(LPVOID arg)
                 {
                     serv->callback_closecon(serv->incons[i].excon);
 
-                    close(serv->incons[i].sock);
+                    closesocket(serv->incons[i].sock);
                     free(serv->incons[i].recvbuf);
                     if (serv->incons[i].sendbuf != NULL)
                     {
@@ -261,7 +273,11 @@ DWORD WINAPI exsc_thr(LPVOID arg)
     }
 
     free(listenthr_arg);
+#ifdef __linux__
     return NULL;
+#elif _WIN32
+    return 0;
+#endif
 }
 
 void exsc_init(int maxsrvcnt)
@@ -308,7 +324,7 @@ int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int c
 #ifdef __linux__
         pthread_create(&srv->thr, NULL, exsc_thr, arg);
 #elif _WIN32
-        g_listenthr = CreateThread(NULL, 0, srv->exsc_listenthr, arg, 0, NULL);
+        srv->thr = GetThreadId(CreateThread(NULL, 0, exsc_thr, arg, 0, NULL));
 #endif
     }
     else
@@ -329,8 +345,9 @@ void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
 
     if (srv->incons[excon->ix].excon.id == excon->id)
     {
+
         int tries = 0; //!!!
-        if (srv->thr != pthread_self()) //!!!
+        if (srv->thr != crtthr()) //!!!
         { //!!!
             char str[10000] = { 0 }; //!!!
             if (bufsize < 10000) //!!!
@@ -339,12 +356,12 @@ void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
                 printf("DIFFERENT THREDS %s\n", str); //!!!
             } //!!!
         } //!!!
-        while (srv->thr != pthread_self() && srv->incons[excon->ix].sendready == 0)
+        while (srv->thr != crtthr() && srv->incons[excon->ix].sendready == 0)
         {
             tries++; //!!!
             if (tries > 10) //!!!
             { //!!!
-                printf("WARNING exsc_send %d %d\n", (int)srv->thr, (int)pthread_self()); //!!!
+                printf("WARNING exsc_send %d %d\n", (int)srv->thr, (int)crtthr()); //!!!
             } //!!!
         }
 

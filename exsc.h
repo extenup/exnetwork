@@ -12,6 +12,7 @@ extern "C" {
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include <Windows.h>
+#include <stdint.h>
 #endif
 
 #define EXSC_CONNAMELEN 64
@@ -67,4 +68,3 @@ void exsc_setconname(int des, struct exsc_excon *excon, char *name);
 }
 #endif
 #endif // EXSC_H
-

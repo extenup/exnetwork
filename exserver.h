@@ -13,7 +13,7 @@
 class ExServer
 {
 private:
-    int mMaxRequestsPerMinute = std::numeric_limits<int>::max();
+    int mMaxRequestsPerMinute = INT_MAX;
     time_t mRequestsPerMinuteClearTime = 0;
 
     QMap<int, QByteArray> mBuffers;

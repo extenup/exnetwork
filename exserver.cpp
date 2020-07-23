@@ -107,8 +107,6 @@ void ExServer::sendMessage(const QString &conName, QJsonObject &message)
 void ExServer::sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode)
 {
     QJsonObject msg;
-    msg["exnetwork_error"] = text; // TODO remove this row
-    msg["type"] = "error";
     msg["error"] = text;
     msg["errorCode"] = errorCode;
     sendMessage(con, msg);
