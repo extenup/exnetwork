@@ -108,6 +108,7 @@ void ExServer::sendErrorMessage(struct exsc_excon &con, const QString &text, con
 {
     QJsonObject msg;
     msg["exnetwork_error"] = text; // TODO remove this row
+    msg["type"] = "error";
     msg["error"] = text;
     msg["errorCode"] = errorCode;
     sendMessage(con, msg);
@@ -195,13 +196,13 @@ void ExServer::exsc_recv(struct exsc_excon con, char *buf, int bufsize)
     }
 }
 
-int ExServer::connectionsCount()
-{
-    //mBuffersMutex.lock();
-    int cnt = mBuffers.count();
-    //mBuffersMutex.unlock();
-    return cnt;
-}
+//int ExServer::connectionsCount()
+//{
+//    //mBuffersMutex.lock();
+//    int cnt = mBuffers.count();
+//    //mBuffersMutex.unlock();
+//    return cnt;
+//}
 
 bool ExServer::isOnline(const QString &name)
 {

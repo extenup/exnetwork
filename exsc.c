@@ -17,37 +17,51 @@
 #define MSG_NOSIGNAL 0
 #endif
 
-struct exsc_config
+// struct that uses in core only (internal connection)
+struct exsc_incon
 {
-    uint16_t g_port;
-    int g_timeout; // seconds
-    int g_timeframe; // milliseconds
-    int g_recvbufsize;
+    struct exsc_excon excon;
+    int sock;               // tcp socket
+    char *recvbuf;          // receive buffer
+    volatile int sendready; // ready to send
+    int sendbufsize;        // send buffer size
+    char *sendbuf;          // send buffer
+    int sent;               // size in bytes that was sent
+    time_t lastact;         // last activity
+};
 
-    int g_inconcnt;
-    int g_inconmax;
-    struct exsc_incon *g_incons;
+struct exsc_srv
+{
+    uint16_t port;
+    int timeout;   // seconds
+    int timeframe; // milliseconds
+    int recvbufsize;
+
+    int inconcnt;
+    int inconmax;
+    struct exsc_incon *incons;
 
     void (*callback_newcon)(struct exsc_excon con);
     void (*callback_closecon)(struct exsc_excon con);
     void (*callback_recv)(struct exsc_excon con, char *buf, int bufsize);
 
 #ifdef __linux__
-    pthread_t g_listenthr;
+    pthread_t thr;
 #elif _WIN32
-    HANDLE g_listenthr;
+    HANDLE thr;
 #endif
 };
 
-struct exsc_listenthr_arg
+struct exsc_thrarg
 {
-    int des;
+    int des; // server descriptor
 };
 
-int g_maxconfigcnt;
-int g_configcnt = 0;
-struct exsc_config *g_configs;
+int g_maxsrvcnt = 0;     // max servers count
+int g_srvcnt = 0;        // servers count
+struct exsc_srv *g_srvs; // servers
 
+// sleep in milliseconds
 void sleepms(int time)
 {
 #ifdef __linux__
@@ -57,6 +71,7 @@ void sleepms(int time)
 #endif
 }
 
+// get number of milliseconds that have elapsed since the system was started
 int gettimems()
 {
 #ifdef __linux__
@@ -87,13 +102,13 @@ int getconid()
 }
 
 #ifdef __linux__
-void *exsc_listenthr(void *arg)
+void *exsc_thr(void *arg)
 #elif _WIN32
-DWORD WINAPI exsc_listenthr(LPVOID arg)
+DWORD WINAPI exsc_thr(LPVOID arg)
 #endif
 {
-    struct exsc_listenthr_arg *listenthr_arg;
-    struct exsc_config *config;
+    struct exsc_thrarg *listenthr_arg;
+    struct exsc_srv *serv;
     int listen_sock;
     int opt;
     struct sockaddr_in addr;
@@ -108,7 +123,7 @@ DWORD WINAPI exsc_listenthr(LPVOID arg)
     int waitms;
 
     listenthr_arg = arg;
-    config = &g_configs[listenthr_arg->des];
+    serv = &g_srvs[listenthr_arg->des];
 
     if ((listen_sock = socket(AF_INET, SOCK_STREAM, 0)) == 0)
     {
@@ -128,7 +143,7 @@ DWORD WINAPI exsc_listenthr(LPVOID arg)
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(config->g_port);
+    addr.sin_port = htons(serv->port);
     addrsize = sizeof(addr);
 
     if (bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
@@ -137,7 +152,7 @@ DWORD WINAPI exsc_listenthr(LPVOID arg)
         exit(EXIT_FAILURE);
     }
 
-    if (listen(listen_sock, config->g_inconcnt) < 0)
+    if (listen(listen_sock, serv->inconcnt) < 0)
     {
         perror("listen");
         exit(EXIT_FAILURE);
@@ -153,89 +168,91 @@ DWORD WINAPI exsc_listenthr(LPVOID arg)
         {
             setsocknonblock(new_sock);
 
-            for (i = 0; i < config->g_inconcnt; i++)
+            for (i = 0; i < serv->inconcnt; i++)
             {
-                if (config->g_incons[i].sock == 0)
+                if (serv->incons[i].sock == 0)
                 {
-                    if (config->g_inconmax < i)
+                    if (serv->inconmax < i)
                     {
-                        config->g_inconmax = i;
-                        printf("%d connections count: %d\n", listenthr_arg->des, config->g_inconmax);
+                        serv->inconmax = i;
+                        printf("%d connections count: %d\n", listenthr_arg->des, serv->inconmax);
                     }
 
-                    config->g_incons[i].excon.ix = i;
-                    config->g_incons[i].excon.id = getconid();
-                    inet_ntop(AF_INET, &addr.sin_addr, config->g_incons[i].excon.addr, INET_ADDRSTRLEN);
-                    config->g_incons[i].sock = new_sock;
-                    config->g_incons[i].recvbuf = malloc(config->g_recvbufsize * sizeof(char));
-                    config->g_incons[i].lastact = t;
+                    serv->incons[i].excon.ix = i;
+                    serv->incons[i].excon.id = getconid();
+                    inet_ntop(AF_INET, &addr.sin_addr, serv->incons[i].excon.addr, INET_ADDRSTRLEN);
+                    serv->incons[i].sock = new_sock;
+                    serv->incons[i].recvbuf = malloc(serv->recvbufsize * sizeof(char));
+                    serv->incons[i].lastact = t;
 
                     break;
                 }
             }
 
-            if (i < config->g_inconcnt)
+            if (i < serv->inconcnt)
             {
-                config->callback_newcon(config->g_incons[i].excon);
+                serv->callback_newcon(serv->incons[i].excon);
             }
             else
             {
                 close(new_sock);
-                puts("exsc WARNING connections are over");
+                printf("exsc_thr WARNING connections are over\n");
             }
         }
 
-        for (i = 0; i < config->g_inconmax + 1; i++)
+        for (i = 0; i < serv->inconmax + 1; i++)
         {
-            if (config->g_incons[i].sock != 0)
+            if (serv->incons[i].sock != 0)
             {
-                if (t - config->g_incons[i].lastact < config->g_timeout)
+                if (t - serv->incons[i].lastact < serv->timeout)
                 {
-                    if ((readsize = recv(config->g_incons[i].sock, config->g_incons[i].recvbuf, config->g_recvbufsize, 0)) > 0)
+                    if ((readsize = recv(serv->incons[i].sock, serv->incons[i].recvbuf, serv->recvbufsize, 0)) > 0)
                     {
-                        config->g_incons[i].lastact = t;
-                        config->callback_recv(config->g_incons[i].excon, config->g_incons[i].recvbuf, readsize);
+                        serv->incons[i].lastact = t;
+                        serv->callback_recv(serv->incons[i].excon, serv->incons[i].recvbuf, readsize);
                     }
 
-                    if (config->g_incons[i].sendready == 1)
+                    if (serv->incons[i].sendready == 1)
                     {
-                        sent = send(config->g_incons[i].sock,
-                                    config->g_incons[i].sendbuf + config->g_incons[i].sent,
-                                    config->g_incons[i].sendbufsize - config->g_incons[i].sent,
+                        serv->incons[i].sendready = 0;
+                        sent = send(serv->incons[i].sock,
+                                    serv->incons[i].sendbuf + serv->incons[i].sent,
+                                    serv->incons[i].sendbufsize - serv->incons[i].sent,
                                     MSG_NOSIGNAL);
 
                         if (sent > 0)
                         {
-                            config->g_incons[i].sent += sent;
-                            if (config->g_incons[i].sent == config->g_incons[i].sendbufsize)
+                            serv->incons[i].sent += sent;
+                            if (serv->incons[i].sent == serv->incons[i].sendbufsize)
                             {
-                                free(config->g_incons[i].sendbuf);
-                                config->g_incons[i].sendbuf = NULL;
-                                config->g_incons[i].sendready = 0;
-                                config->g_incons[i].sendbufsize = 0;
-                                config->g_incons[i].sent = 0;
+                                free(serv->incons[i].sendbuf);
+                                serv->incons[i].sendbuf = NULL;
+                                serv->incons[i].sendready = 0;
+                                serv->incons[i].sendbufsize = 0;
+                                serv->incons[i].sent = 0;
                             }
                         }
+                        serv->incons[i].sendready = 1;
                     }
                 }
                 else
                 {
-                    config->callback_closecon(config->g_incons[i].excon);
+                    serv->callback_closecon(serv->incons[i].excon);
 
-                    close(config->g_incons[i].sock);
-                    free(config->g_incons[i].recvbuf);
-                    if (config->g_incons[i].sendbuf != NULL)
+                    close(serv->incons[i].sock);
+                    free(serv->incons[i].recvbuf);
+                    if (serv->incons[i].sendbuf != NULL)
                     {
-                        free(config->g_incons[i].sendbuf);
+                        free(serv->incons[i].sendbuf);
                     }
-                    memset(&config->g_incons[i], 0, sizeof(struct exsc_incon));
+                    memset(&serv->incons[i], 0, sizeof(struct exsc_incon));
                 }
             }
         }
 
         endtime = gettimems();
 
-        waitms = config->g_timeframe - (endtime - begtime);
+        waitms = serv->timeframe - (endtime - begtime);
         if (waitms < 0)
         {
             waitms = 0;
@@ -247,11 +264,11 @@ DWORD WINAPI exsc_listenthr(LPVOID arg)
     return NULL;
 }
 
-void exsc_init(int maxconfigcnt)
+void exsc_init(int maxsrvcnt)
 {
-    g_maxconfigcnt = maxconfigcnt;
-    g_configs = malloc(g_maxconfigcnt * sizeof(struct exsc_config));
-    g_configcnt = 0;
+    g_maxsrvcnt = maxsrvcnt;
+    g_srvs = malloc(g_maxsrvcnt * sizeof(struct exsc_srv));
+    g_srvcnt = 0;
 }
 
 int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int concnt,
@@ -259,89 +276,116 @@ int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int c
                 void closecon(struct exsc_excon con),
                 void recv(struct exsc_excon con, char *, int))
 {
-    int des;
-    struct exsc_config *config;
-    struct exsc_listenthr_arg *arg;
+    int des = -1;
+    struct exsc_srv *srv;
+    struct exsc_thrarg *arg;
 
-    des = g_configcnt;
-    config = &g_configs[des];
+    if (g_srvcnt < g_maxsrvcnt)
+    {
+        des = g_srvcnt;
+        srv = &g_srvs[des];
 
-    g_configcnt++;
+        g_srvcnt++;
 
-    config->g_port = port;
-    config->g_timeout = timeout;
-    config->g_timeframe = timeframe;
-    config->g_recvbufsize = recvbufsize;
+        srv->port = port;
+        srv->timeout = timeout;
+        srv->timeframe = timeframe;
+        srv->recvbufsize = recvbufsize;
 
-    config->g_inconcnt = concnt;
-    config->g_inconmax = 0;
-    config->g_incons = malloc(config->g_inconcnt * sizeof(struct exsc_incon));
-    memset(config->g_incons, 0, config->g_inconcnt * sizeof(struct exsc_incon));
+        srv->inconcnt = concnt;
+        srv->inconmax = 0;
+        srv->incons = malloc(srv->inconcnt * sizeof(struct exsc_incon));
+        memset(srv->incons, 0, srv->inconcnt * sizeof(struct exsc_incon));
 
-    config->callback_newcon = newcon;
-    config->callback_closecon = closecon;
-    config->callback_recv = recv;
+        srv->callback_newcon = newcon;
+        srv->callback_closecon = closecon;
+        srv->callback_recv = recv;
 
-    arg = malloc(sizeof(struct exsc_listenthr_arg));
-    arg->des = des;
+        arg = malloc(sizeof(struct exsc_thrarg));
+        arg->des = des;
 
+        // strart the server thread
 #ifdef __linux__
-    pthread_create(&config->g_listenthr, NULL, exsc_listenthr, arg);
+        pthread_create(&srv->thr, NULL, exsc_thr, arg);
 #elif _WIN32
-    g_listenthr = CreateThread(NULL, 0, config->exsc_listenthr, arg, 0, NULL);
+        g_listenthr = CreateThread(NULL, 0, srv->exsc_listenthr, arg, 0, NULL);
 #endif
+    }
+    else
+    {
+        printf("exsc_start ERROR need to increase max servers count in function exsc_init(maxsrvcnt)\n");
+    }
 
     return des;
 }
 
 void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
 {
-    struct exsc_config *config;
+    struct exsc_srv *srv;
     int newbufsize;
     char *newbuf;
 
-    config = &g_configs[des];
+    srv = &g_srvs[des];
 
-    if (config->g_incons[excon->ix].excon.id == excon->id)
+    if (srv->incons[excon->ix].excon.id == excon->id)
     {
-        config->g_incons[excon->ix].sendready = 0;
-        if (config->g_incons[excon->ix].sendbuf == NULL)
+        int tries = 0; //!!!
+        if (srv->thr != pthread_self()) //!!!
+        { //!!!
+            char str[10000] = { 0 }; //!!!
+            if (bufsize < 10000) //!!!
+            { //!!!
+                memcpy(str, buf, bufsize); //!!!
+                printf("DIFFERENT THREDS %s\n", str); //!!!
+            } //!!!
+        } //!!!
+        while (srv->thr != pthread_self() && srv->incons[excon->ix].sendready == 0)
         {
-            config->g_incons[excon->ix].sendbufsize = bufsize;
-            config->g_incons[excon->ix].sendbuf = malloc(config->g_incons[excon->ix].sendbufsize * sizeof(char));
-            memcpy(config->g_incons[excon->ix].sendbuf, buf, config->g_incons[excon->ix].sendbufsize);
-            config->g_incons[excon->ix].sent = 0;
+            tries++; //!!!
+            if (tries > 10) //!!!
+            { //!!!
+                printf("WARNING exsc_send %d %d\n", (int)srv->thr, (int)pthread_self()); //!!!
+            } //!!!
+        }
+
+        srv->incons[excon->ix].sendready = 0;
+        if (srv->incons[excon->ix].sendbuf == NULL)
+        {
+            srv->incons[excon->ix].sendbufsize = bufsize;
+            srv->incons[excon->ix].sendbuf = malloc(srv->incons[excon->ix].sendbufsize * sizeof(char));
+            memcpy(srv->incons[excon->ix].sendbuf, buf, srv->incons[excon->ix].sendbufsize);
+            srv->incons[excon->ix].sent = 0;
         }
         else
         {
-            newbufsize = config->g_incons[excon->ix].sendbufsize + bufsize;
+            newbufsize = srv->incons[excon->ix].sendbufsize + bufsize;
             newbuf = malloc(newbufsize * sizeof(char));
 
-            memcpy(newbuf, config->g_incons[excon->ix].sendbuf, config->g_incons[excon->ix].sendbufsize);
-            memcpy(newbuf + config->g_incons[excon->ix].sendbufsize, buf, bufsize);
+            memcpy(newbuf, srv->incons[excon->ix].sendbuf, srv->incons[excon->ix].sendbufsize);
+            memcpy(newbuf + srv->incons[excon->ix].sendbufsize, buf, bufsize);
 
-            free(config->g_incons[excon->ix].sendbuf);
+            free(srv->incons[excon->ix].sendbuf);
 
-            config->g_incons[excon->ix].sendbufsize = newbufsize;
-            config->g_incons[excon->ix].sendbuf = newbuf;
+            srv->incons[excon->ix].sendbufsize = newbufsize;
+            srv->incons[excon->ix].sendbuf = newbuf;
         }
-        config->g_incons[excon->ix].sendready = 1;
+        srv->incons[excon->ix].sendready = 1;
     }
 }
 
 void exsc_sendbyname(int des, char *conname, char *buf, int bufsize)
 {
-    struct exsc_config *config;
+    struct exsc_srv *srv;
     int ix;
     struct exsc_excon excon;
 
-    config = &g_configs[des];
+    srv = &g_srvs[des];
 
-    for (ix = 0; ix < config->g_inconmax + 1; ix++)
+    for (ix = 0; ix < srv->inconmax + 1; ix++)
     {
-        if (strcmp(config->g_incons[ix].excon.name, conname) == 0)
+        if (strcmp(srv->incons[ix].excon.name, conname) == 0)
         {
-            excon = config->g_incons[ix].excon;
+            excon = srv->incons[ix].excon;
             exsc_send(des, &excon, buf, bufsize);
         }
     }
@@ -349,12 +393,19 @@ void exsc_sendbyname(int des, char *conname, char *buf, int bufsize)
 
 void exsc_setconname(int des, struct exsc_excon *excon, char *name)
 {
-    struct exsc_config *config;
+    struct exsc_srv *srv;
 
-    config = &g_configs[des];
+    srv = &g_srvs[des];
 
-    if (config->g_incons[excon->ix].excon.id == excon->id)
+    if (srv->incons[excon->ix].excon.id == excon->id)
     {
-        strcpy(config->g_incons[excon->ix].excon.name, name);
+        if (strlen(name) + 1 < EXSC_CONNAMELEN)
+        {
+            memcpy(srv->incons[excon->ix].excon.name, name, sizeof(srv->incons[excon->ix].excon.name) - 1);
+        }
+        else
+        {
+            printf("exsc_setconname WARNING name is too long");
+        }
     }
 }

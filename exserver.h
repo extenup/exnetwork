@@ -13,7 +13,6 @@
 class ExServer
 {
 private:
-    quint16 mPort = 0;
     int mMaxRequestsPerMinute = std::numeric_limits<int>::max();
     time_t mRequestsPerMinuteClearTime = 0;
 
@@ -55,7 +54,7 @@ public:
     void exsc_closecon(struct exsc_excon con);
     void exsc_recv(struct exsc_excon con, char *buf, int bufsize);
 
-    int connectionsCount();
+    //int connectionsCount();
     bool isOnline(const QString &name);
     void setMaxRequestsPerMinute(int maxRequestsPerMinute);
 };
