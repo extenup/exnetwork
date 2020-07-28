@@ -26,7 +26,7 @@ bool ExSmtpClient::sendMail(const QString &from, const QString &to, const QStrin
 
     if (!files.isEmpty())
     {
-        qDebug() << "Files to be sent: " << files.size();
+        //qDebug() << "Files to be sent: " << files.size();
         foreach(QString filePath, files)
         {
             QFile file(filePath);
