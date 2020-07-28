@@ -23,7 +23,7 @@ struct exsc_incon
     struct exsc_excon excon;
     int sock;               // tcp socket
     char *recvbuf;          // receive buffer
-    volatile int sendready; // ready to send
+    volatile int locksend;  // lock for send
     int sendbufsize;        // send buffer size
     char *sendbuf;          // send buffer
     int sent;               // size in bytes that was sent
@@ -234,9 +234,9 @@ DWORD WINAPI exsc_thr(LPVOID arg)
                         serv->callback_recv(serv->incons[i].excon, serv->incons[i].recvbuf, readsize);
                     }
 
-                    if (serv->incons[i].sendready == 1)
+                    if (serv->incons[i].locksend == 0)
                     {
-                        serv->incons[i].sendready = 0;
+                        serv->incons[i].locksend = 1;
                         sent = send(serv->incons[i].sock,
                                     serv->incons[i].sendbuf + serv->incons[i].sent,
                                     serv->incons[i].sendbufsize - serv->incons[i].sent,
@@ -249,12 +249,11 @@ DWORD WINAPI exsc_thr(LPVOID arg)
                             {
                                 free(serv->incons[i].sendbuf);
                                 serv->incons[i].sendbuf = NULL;
-                                serv->incons[i].sendready = 0;
                                 serv->incons[i].sendbufsize = 0;
                                 serv->incons[i].sent = 0;
                             }
                         }
-                        serv->incons[i].sendready = 1;
+                        serv->incons[i].locksend = 0;
                     }
                 }
                 else
@@ -366,7 +365,7 @@ void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
                 printf("DIFFERENT THREDS %s\n", str); //!!!
             } //!!!
         } //!!!
-        while (srv->thr != crtthr() && srv->incons[excon->ix].sendready == 0)
+        while (srv->thr != crtthr() && srv->incons[excon->ix].locksend == 1)
         {
             tries++; //!!!
             if (tries > 10) //!!!
@@ -375,7 +374,7 @@ void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
             } //!!!
         }
 
-        srv->incons[excon->ix].sendready = 0;
+        srv->incons[excon->ix].locksend = 1;
         if (srv->incons[excon->ix].sendbuf == NULL)
         {
             srv->incons[excon->ix].sendbufsize = bufsize;
@@ -396,7 +395,7 @@ void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
             srv->incons[excon->ix].sendbufsize = newbufsize;
             srv->incons[excon->ix].sendbuf = newbuf;
         }
-        srv->incons[excon->ix].sendready = 1;
+        srv->incons[excon->ix].locksend = 0;
     }
 }
 

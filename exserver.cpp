@@ -92,15 +92,22 @@ void ExServer::sendMessage(struct exsc_excon &con, QJsonObject &message)
 
 void ExServer::sendMessage(const QString &conName, QJsonObject &message)
 {
-    QJsonDocument doc(message);
-    if (!doc.isEmpty())
+    if (conName != "")
     {
-        QByteArray buffer = doc.toJson(QJsonDocument::Compact) + '\n';
-        exsc_sendbyname(mExscDescriptor, conName.toUtf8().data(), buffer.data(), buffer.size());
+        QJsonDocument doc(message);
+        if (!doc.isEmpty())
+        {
+            QByteArray buffer = doc.toJson(QJsonDocument::Compact) + '\n';
+            exsc_sendbyname(mExscDescriptor, conName.toUtf8().data(), buffer.data(), buffer.size());
+        }
+        else
+        {
+            qDebug() << "ERROR" << Q_FUNC_INFO;
+        }
     }
     else
     {
-        qDebug() << "ERROR" << Q_FUNC_INFO;
+        qDebug() << "WARNING" << Q_FUNC_INFO << "conName is EMPTY";
     }
 }
 
