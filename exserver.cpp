@@ -111,11 +111,15 @@ void ExServer::sendMessage(const QString &conName, QJsonObject &message)
     }
 }
 
-void ExServer::sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode)
+void ExServer::sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode, QJsonObject add)
 {
     QJsonObject msg;
     msg["error"] = text;
     msg["errorCode"] = errorCode;
+    for (QString k : add.keys())
+    {
+        msg[k] = add[k];
+    }
     sendMessage(con, msg);
 }
 

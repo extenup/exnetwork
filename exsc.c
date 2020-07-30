@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <time.h>
 #include <fcntl.h>
+#include "crossthread.h"
 
 #ifdef __linux__
 #include <unistd.h>
@@ -23,7 +24,6 @@ struct exsc_incon
     struct exsc_excon excon;
     int sock;               // tcp socket
     char *recvbuf;          // receive buffer
-    volatile int locksend;  // lock for send
     int sendbufsize;        // send buffer size
     char *sendbuf;          // send buffer
     int sent;               // size in bytes that was sent
@@ -45,11 +45,8 @@ struct exsc_srv
     void (*callback_closecon)(struct exsc_excon con);
     void (*callback_recv)(struct exsc_excon con, char *buf, int bufsize);
 
-#ifdef __linux__
+    pthread_mutex_t mtx;
     pthread_t thr;
-#elif _WIN32
-    DWORD thr;
-#endif
 };
 
 struct exsc_thrarg
@@ -102,35 +99,21 @@ int getconid()
 }
 
 #ifdef __linux__
-pthread_t crtthr()
-{
-    return pthread_self();
-}
-
 void closesock(int sock)
 {
     close(sock);
 }
 #elif _WIN32
-DWORD crtthr()
-{
-    return GetThreadId(GetCurrentThread());
-}
-
 void closesock(int sock)
 {
     closesocket(sock);
 }
 #endif
 
-#ifdef __linux__
 void *exsc_thr(void *arg)
-#elif _WIN32
-DWORD WINAPI exsc_thr(LPVOID arg)
-#endif
 {
-    struct exsc_thrarg *listenthr_arg;
-    struct exsc_srv *serv;
+    struct exsc_thrarg *thr_arg;
+    struct exsc_srv *srv;
     int listen_sock;
     int opt;
     struct sockaddr_in addr;
@@ -144,8 +127,8 @@ DWORD WINAPI exsc_thr(LPVOID arg)
     int endtime;
     int waitms;
 
-    listenthr_arg = arg;
-    serv = &g_srvs[listenthr_arg->des];
+    thr_arg = arg;
+    srv = &g_srvs[thr_arg->des];
 
     if ((listen_sock = socket(AF_INET, SOCK_STREAM, 0)) == 0)
     {
@@ -165,7 +148,7 @@ DWORD WINAPI exsc_thr(LPVOID arg)
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(serv->port);
+    addr.sin_port = htons(srv->port);
     addrsize = sizeof(addr);
 
     if (bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
@@ -174,7 +157,7 @@ DWORD WINAPI exsc_thr(LPVOID arg)
         exit(EXIT_FAILURE);
     }
 
-    if (listen(listen_sock, serv->inconcnt) < 0)
+    if (listen(listen_sock, srv->inconcnt) < 0)
     {
         perror("listen");
         exit(EXIT_FAILURE);
@@ -190,30 +173,30 @@ DWORD WINAPI exsc_thr(LPVOID arg)
         {
             setsocknonblock(new_sock);
 
-            for (i = 0; i < serv->inconcnt; i++)
+            for (i = 0; i < srv->inconcnt; i++)
             {
-                if (serv->incons[i].sock == 0)
+                if (srv->incons[i].sock == 0)
                 {
-                    if (serv->inconmax < i)
+                    if (srv->inconmax < i)
                     {
-                        serv->inconmax = i;
-                        printf("%d connections count: %d\n", listenthr_arg->des, serv->inconmax);
+                        srv->inconmax = i;
+                        printf("%d connections count: %d\n", thr_arg->des, srv->inconmax);
                     }
 
-                    serv->incons[i].excon.ix = i;
-                    serv->incons[i].excon.id = getconid();
-                    inet_ntop(AF_INET, &addr.sin_addr, serv->incons[i].excon.addr, INET_ADDRSTRLEN);
-                    serv->incons[i].sock = new_sock;
-                    serv->incons[i].recvbuf = malloc(serv->recvbufsize * sizeof(char));
-                    serv->incons[i].lastact = t;
+                    srv->incons[i].excon.ix = i;
+                    srv->incons[i].excon.id = getconid();
+                    inet_ntop(AF_INET, &addr.sin_addr, srv->incons[i].excon.addr, INET_ADDRSTRLEN);
+                    srv->incons[i].sock = new_sock;
+                    srv->incons[i].recvbuf = malloc(srv->recvbufsize * sizeof(char));
+                    srv->incons[i].lastact = t;
 
                     break;
                 }
             }
 
-            if (i < serv->inconcnt)
+            if (i < srv->inconcnt)
             {
-                serv->callback_newcon(serv->incons[i].excon);
+                srv->callback_newcon(srv->incons[i].excon);
             }
             else
             {
@@ -222,58 +205,57 @@ DWORD WINAPI exsc_thr(LPVOID arg)
             }
         }
 
-        for (i = 0; i < serv->inconmax + 1; i++)
+        for (i = 0; i < srv->inconmax + 1; i++)
         {
-            if (serv->incons[i].sock != 0)
+            if (srv->incons[i].sock != 0)
             {
-                if (t - serv->incons[i].lastact < serv->timeout)
+                if (t - srv->incons[i].lastact < srv->timeout)
                 {
-                    if ((readsize = recv(serv->incons[i].sock, serv->incons[i].recvbuf, serv->recvbufsize, 0)) > 0)
+                    if ((readsize = recv(srv->incons[i].sock, srv->incons[i].recvbuf, srv->recvbufsize, 0)) > 0)
                     {
-                        serv->incons[i].lastact = t;
-                        serv->callback_recv(serv->incons[i].excon, serv->incons[i].recvbuf, readsize);
+                        srv->incons[i].lastact = t;
+                        srv->callback_recv(srv->incons[i].excon, srv->incons[i].recvbuf, readsize);
                     }
 
-                    if (serv->incons[i].locksend == 0)
-                    {
-                        serv->incons[i].locksend = 1;
-                        sent = send(serv->incons[i].sock,
-                                    serv->incons[i].sendbuf + serv->incons[i].sent,
-                                    serv->incons[i].sendbufsize - serv->incons[i].sent,
-                                    MSG_NOSIGNAL);
+                    pthread_mutex_lock(&srv->mtx);
+                    sent = send(srv->incons[i].sock,
+                                srv->incons[i].sendbuf + srv->incons[i].sent,
+                                srv->incons[i].sendbufsize - srv->incons[i].sent,
+                                MSG_NOSIGNAL);
 
-                        if (sent > 0)
+                    if (sent > 0)
+                    {
+                        srv->incons[i].sent += sent;
+                        if (srv->incons[i].sent == srv->incons[i].sendbufsize)
                         {
-                            serv->incons[i].sent += sent;
-                            if (serv->incons[i].sent == serv->incons[i].sendbufsize)
-                            {
-                                free(serv->incons[i].sendbuf);
-                                serv->incons[i].sendbuf = NULL;
-                                serv->incons[i].sendbufsize = 0;
-                                serv->incons[i].sent = 0;
-                            }
+                            free(srv->incons[i].sendbuf);
+                            srv->incons[i].sendbuf = NULL;
+                            srv->incons[i].sendbufsize = 0;
+                            srv->incons[i].sent = 0;
                         }
-                        serv->incons[i].locksend = 0;
                     }
+                    pthread_mutex_unlock(&srv->mtx);
                 }
                 else
                 {
-                    serv->callback_closecon(serv->incons[i].excon);
+                    pthread_mutex_lock(&srv->mtx);
+                    srv->callback_closecon(srv->incons[i].excon);
 
-                    closesock(serv->incons[i].sock);
-                    free(serv->incons[i].recvbuf);
-                    if (serv->incons[i].sendbuf != NULL)
+                    closesock(srv->incons[i].sock);
+                    free(srv->incons[i].recvbuf);
+                    if (srv->incons[i].sendbuf != NULL)
                     {
-                        free(serv->incons[i].sendbuf);
+                        free(srv->incons[i].sendbuf);
                     }
-                    memset(&serv->incons[i], 0, sizeof(struct exsc_incon));
+                    memset(&srv->incons[i], 0, sizeof(struct exsc_incon));
+                    pthread_mutex_unlock(&srv->mtx);
                 }
             }
         }
 
         endtime = gettimems();
 
-        waitms = serv->timeframe - (endtime - begtime);
+        waitms = srv->timeframe - (endtime - begtime);
         if (waitms < 0)
         {
             waitms = 0;
@@ -281,12 +263,8 @@ DWORD WINAPI exsc_thr(LPVOID arg)
         sleepms(waitms);
     }
 
-    free(listenthr_arg);
-#ifdef __linux__
+    free(thr_arg);
     return NULL;
-#elif _WIN32
-    return 0;
-#endif
 }
 
 void exsc_init(int maxsrvcnt)
@@ -329,12 +307,11 @@ int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int c
         arg = malloc(sizeof(struct exsc_thrarg));
         arg->des = des;
 
+        // initialize mutex
+        pthread_mutex_init(&srv->mtx, NULL);
+
         // strart the server thread
-#ifdef __linux__
         pthread_create(&srv->thr, NULL, exsc_thr, arg);
-#elif _WIN32
-        srv->thr = GetThreadId(CreateThread(NULL, 0, exsc_thr, arg, 0, NULL));
-#endif
     }
     else
     {
@@ -355,26 +332,26 @@ void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
     if (srv->incons[excon->ix].excon.id == excon->id)
     {
 
-        int tries = 0; //!!!
-        if (srv->thr != crtthr()) //!!!
-        { //!!!
-            char str[10000] = { 0 }; //!!!
-            if (bufsize < 10000) //!!!
-            { //!!!
-                memcpy(str, buf, bufsize); //!!!
-                printf("DIFFERENT THREDS %s\n", str); //!!!
-            } //!!!
-        } //!!!
-        while (srv->thr != crtthr() && srv->incons[excon->ix].locksend == 1)
-        {
-            tries++; //!!!
-            if (tries > 10) //!!!
-            { //!!!
-                printf("WARNING exsc_send %d %d\n", (int)srv->thr, (int)crtthr()); //!!!
-            } //!!!
-        }
+        //int tries = 0; //!!!
+        //if (srv->thr != crtthr()) //!!!
+        //{ //!!!
+        //    char str[10000] = { 0 }; //!!!
+        //    if (bufsize < 10000) //!!!
+        //    { //!!!
+        //        memcpy(str, buf, bufsize); //!!!
+        //        printf("DIFFERENT THREDS %s\n", str); //!!!
+        //    } //!!!
+        //} //!!!
+        //while (srv->thr != crtthr() && srv->incons[excon->ix].locksend == 1)
+        //{
+        //    tries++; //!!!
+        //    if (tries > 10) //!!!
+        //    { //!!!
+        //        printf("WARNING exsc_send %d %d\n", (int)srv->thr, (int)crtthr()); //!!!
+        //    } //!!!
+        //}
 
-        srv->incons[excon->ix].locksend = 1;
+        pthread_mutex_lock(&srv->mtx);
         if (srv->incons[excon->ix].sendbuf == NULL)
         {
             srv->incons[excon->ix].sendbufsize = bufsize;
@@ -395,7 +372,7 @@ void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
             srv->incons[excon->ix].sendbufsize = newbufsize;
             srv->incons[excon->ix].sendbuf = newbuf;
         }
-        srv->incons[excon->ix].locksend = 0;
+        pthread_mutex_unlock(&srv->mtx);
     }
 }
 
