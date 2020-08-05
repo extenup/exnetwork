@@ -43,7 +43,7 @@ protected:
     void sendMessage(struct exsc_excon &con, QJsonObject &message);
     void sendMessage(const QString &conName, QJsonObject &message);
 
-    void sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode, QJsonObject add = QJsonObject());
+    void sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode);
 
     virtual void readMessage(struct exsc_excon &con, QJsonObject &message) = 0;
     virtual void logout(const QString &conName);
