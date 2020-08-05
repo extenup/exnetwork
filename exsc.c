@@ -170,6 +170,7 @@ void *exsc_thr(void *arg)
         t = time(NULL);
 
         pthread_mutex_lock(&srv->mtx);
+
         while ((new_sock = accept(listen_sock, (struct sockaddr *)&addr, (socklen_t *)&addrsize)) > 0)
         {
             setsocknonblock(new_sock);
@@ -181,7 +182,7 @@ void *exsc_thr(void *arg)
                     if (srv->inconmax < i)
                     {
                         srv->inconmax = i;
-                        //printf("%d connections count: %d\n", thr_arg->des, srv->inconmax);
+                        printf("%d connections count: %d\n", thr_arg->des, srv->inconmax);
                     }
 
                     srv->incons[i].excon.ix = i;
@@ -249,6 +250,7 @@ void *exsc_thr(void *arg)
                 }
             }
         }
+
         pthread_mutex_unlock(&srv->mtx);
 
         endtime = gettimems();
@@ -349,15 +351,31 @@ void exsend(struct exsc_srv *srv, struct exsc_excon *excon, char *buf, int bufsi
     }
 }
 
+void exlock(struct exsc_srv *srv)
+{
+    if (pthread_self() != srv->thr)
+    {
+        pthread_mutex_lock(&srv->mtx);
+    }
+}
+
+void exunlock(struct exsc_srv *srv)
+{
+    if (pthread_self() != srv->thr)
+    {
+        pthread_mutex_unlock(&srv->mtx);
+    }
+}
+
 void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
 {
     struct exsc_srv *srv;
 
     srv = &g_srvs[des];
 
-    pthread_mutex_lock(&srv->mtx);
+    exlock(srv);
     exsend(srv, excon, buf, bufsize);
-    pthread_mutex_unlock(&srv->mtx);
+    exunlock(srv);
 }
 
 void exsc_sendbyname(int des, char *conname, char *buf, int bufsize)
@@ -368,7 +386,7 @@ void exsc_sendbyname(int des, char *conname, char *buf, int bufsize)
 
     srv = &g_srvs[des];
 
-    pthread_mutex_lock(&srv->mtx);
+    exlock(srv);
     for (ix = 0; ix < srv->inconmax + 1; ix++)
     {
         if (strcmp(srv->incons[ix].excon.name, conname) == 0)
@@ -377,7 +395,7 @@ void exsc_sendbyname(int des, char *conname, char *buf, int bufsize)
             exsend(srv, &excon, buf, bufsize);
         }
     }
-    pthread_mutex_unlock(&srv->mtx);
+    exunlock(srv);
 }
 
 void exsc_setconname(int des, struct exsc_excon *excon, char *name)
@@ -386,7 +404,7 @@ void exsc_setconname(int des, struct exsc_excon *excon, char *name)
 
     srv = &g_srvs[des];
 
-    pthread_mutex_lock(&srv->mtx);
+    exlock(srv);
     if (srv->incons[excon->ix].excon.id == excon->id)
     {
         if (strlen(name) + 1 < EXSC_CONNAMELEN)
@@ -398,5 +416,5 @@ void exsc_setconname(int des, struct exsc_excon *excon, char *name)
             printf("exsc_setconname WARNING name is too long");
         }
     }
-    pthread_mutex_unlock(&srv->mtx);
+    exunlock(srv);
 }
