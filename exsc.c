@@ -139,7 +139,7 @@ void *exsc_thr(void *arg)
     setsocknonblock(listen_sock);
 
     opt = 1;
-    if (setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) != 0)
+    if (setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt)) != 0)
     {
         perror("ecsc setsockopt");
         exit(EXIT_FAILURE);
@@ -169,6 +169,7 @@ void *exsc_thr(void *arg)
 
         t = time(NULL);
 
+        pthread_mutex_lock(&srv->mtx);
         while ((new_sock = accept(listen_sock, (struct sockaddr *)&addr, (socklen_t *)&addrsize)) > 0)
         {
             setsocknonblock(new_sock);
@@ -217,7 +218,6 @@ void *exsc_thr(void *arg)
                         srv->callback_recv(srv->incons[i].excon, srv->incons[i].recvbuf, readsize);
                     }
 
-                    pthread_mutex_lock(&srv->mtx);
                     sent = send(srv->incons[i].sock,
                                 srv->incons[i].sendbuf + srv->incons[i].sent,
                                 srv->incons[i].sendbufsize - srv->incons[i].sent,
@@ -234,11 +234,9 @@ void *exsc_thr(void *arg)
                             srv->incons[i].sent = 0;
                         }
                     }
-                    pthread_mutex_unlock(&srv->mtx);
                 }
                 else
                 {
-                    pthread_mutex_lock(&srv->mtx);
                     srv->callback_closecon(srv->incons[i].excon);
 
                     closesock(srv->incons[i].sock);
@@ -248,10 +246,10 @@ void *exsc_thr(void *arg)
                         free(srv->incons[i].sendbuf);
                     }
                     memset(&srv->incons[i], 0, sizeof(struct exsc_incon));
-                    pthread_mutex_unlock(&srv->mtx);
                 }
             }
         }
+        pthread_mutex_unlock(&srv->mtx);
 
         endtime = gettimems();
 
@@ -321,37 +319,13 @@ int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int c
     return des;
 }
 
-void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
+void exsend(struct exsc_srv *srv, struct exsc_excon *excon, char *buf, int bufsize)
 {
-    struct exsc_srv *srv;
     int newbufsize;
     char *newbuf;
 
-    srv = &g_srvs[des];
-
     if (srv->incons[excon->ix].excon.id == excon->id)
     {
-
-        //int tries = 0; //!!!
-        //if (srv->thr != crtthr()) //!!!
-        //{ //!!!
-        //    char str[10000] = { 0 }; //!!!
-        //    if (bufsize < 10000) //!!!
-        //    { //!!!
-        //        memcpy(str, buf, bufsize); //!!!
-        //        printf("DIFFERENT THREDS %s\n", str); //!!!
-        //    } //!!!
-        //} //!!!
-        //while (srv->thr != crtthr() && srv->incons[excon->ix].locksend == 1)
-        //{
-        //    tries++; //!!!
-        //    if (tries > 10) //!!!
-        //    { //!!!
-        //        printf("WARNING exsc_send %d %d\n", (int)srv->thr, (int)crtthr()); //!!!
-        //    } //!!!
-        //}
-
-        pthread_mutex_lock(&srv->mtx);
         if (srv->incons[excon->ix].sendbuf == NULL)
         {
             srv->incons[excon->ix].sendbufsize = bufsize;
@@ -372,8 +346,18 @@ void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
             srv->incons[excon->ix].sendbufsize = newbufsize;
             srv->incons[excon->ix].sendbuf = newbuf;
         }
-        pthread_mutex_unlock(&srv->mtx);
     }
+}
+
+void exsc_send(int des, struct exsc_excon *excon, char *buf, int bufsize)
+{
+    struct exsc_srv *srv;
+
+    srv = &g_srvs[des];
+
+    pthread_mutex_lock(&srv->mtx);
+    exsend(srv, excon, buf, bufsize);
+    pthread_mutex_unlock(&srv->mtx);
 }
 
 void exsc_sendbyname(int des, char *conname, char *buf, int bufsize)
@@ -384,14 +368,16 @@ void exsc_sendbyname(int des, char *conname, char *buf, int bufsize)
 
     srv = &g_srvs[des];
 
+    pthread_mutex_lock(&srv->mtx);
     for (ix = 0; ix < srv->inconmax + 1; ix++)
     {
         if (strcmp(srv->incons[ix].excon.name, conname) == 0)
         {
             excon = srv->incons[ix].excon;
-            exsc_send(des, &excon, buf, bufsize);
+            exsend(srv, &excon, buf, bufsize);
         }
     }
+    pthread_mutex_unlock(&srv->mtx);
 }
 
 void exsc_setconname(int des, struct exsc_excon *excon, char *name)
@@ -400,6 +386,7 @@ void exsc_setconname(int des, struct exsc_excon *excon, char *name)
 
     srv = &g_srvs[des];
 
+    pthread_mutex_lock(&srv->mtx);
     if (srv->incons[excon->ix].excon.id == excon->id)
     {
         if (strlen(name) + 1 < EXSC_CONNAMELEN)
@@ -411,4 +398,5 @@ void exsc_setconname(int des, struct exsc_excon *excon, char *name)
             printf("exsc_setconname WARNING name is too long");
         }
     }
+    pthread_mutex_unlock(&srv->mtx);
 }
