@@ -180,7 +180,7 @@ void *exsc_thr(void *arg)
                     if (srv->inconmax < i)
                     {
                         srv->inconmax = i;
-                        printf("%d connections count: %d\n", thr_arg->des, srv->inconmax);
+                        //printf("%d connections count: %d\n", thr_arg->des, srv->inconmax);
                     }
 
                     srv->incons[i].excon.ix = i;
