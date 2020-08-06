@@ -353,7 +353,7 @@ void exsend(struct exsc_srv *srv, struct exsc_excon *excon, char *buf, int bufsi
 
 void exlock(struct exsc_srv *srv)
 {
-    if (pthread_self() != srv->thr)
+    if (!pthread_equal(pthread_self(), srv->thr))
     {
         pthread_mutex_lock(&srv->mtx);
     }
@@ -361,7 +361,7 @@ void exlock(struct exsc_srv *srv)
 
 void exunlock(struct exsc_srv *srv)
 {
-    if (pthread_self() != srv->thr)
+    if (!pthread_equal(pthread_self(), srv->thr))
     {
         pthread_mutex_unlock(&srv->mtx);
     }

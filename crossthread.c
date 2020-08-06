@@ -13,9 +13,9 @@ typedef void (*windows_thread)(void *);
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void
 				   *(*start_routine)(void *), void *arg)
 {
-	uintptr_t handle = _beginthread((windows_thread)start_routine,0,arg);
-	thread->handle = (HANDLE)handle;
-	if(thread->handle == (HANDLE)-1){
+    uintptr_t handle = _beginthread((windows_thread)start_routine,0,arg);
+    thread->handle = (HANDLE)handle;
+    if(thread->handle == (HANDLE)-1){
 		return 1;
 	}else{
 		return 0;
@@ -35,7 +35,7 @@ void pthread_exit(void *value_ptr)
 
 int pthread_join(pthread_t thread, void **value_ptr)
 {
-	DWORD retvalue = WaitForSingleObject(thread.handle,INFINITE);
+    DWORD retvalue = WaitForSingleObject(thread.handle,INFINITE);
 	if(retvalue == WAIT_OBJECT_0){
 		return 0;
 	}else{
@@ -46,7 +46,7 @@ int pthread_join(pthread_t thread, void **value_ptr)
 pthread_t pthread_self(void)
 {
 	pthread_t pt;
-	pt.handle = GetCurrentThread();
+    pt.handle = GetCurrentThread();
 	return pt;
 }
 
@@ -148,6 +148,11 @@ int pthread_setspecific(pthread_key_t key, const void *pointer)
 void * pthread_getspecific(pthread_key_t key)
 {
 	return TlsGetValue(key);
+}
+
+int pthread_equal(pthread_t t1, pthread_t t2)
+{
+    return GetThreadId(t1.handle) == GetThreadId(t2.handle);
 }
 
 #endif

@@ -71,6 +71,8 @@ int pthread_key_delete(pthread_key_t key);
 int pthread_setspecific(pthread_key_t key, const void *pointer);
 void * pthread_getspecific(pthread_key_t key);
 
+int pthread_equal(pthread_t t1, pthread_t t2);
+
 #define sleep(num) Sleep(1000*(num))
 
 #ifdef __cplusplus
