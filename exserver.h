@@ -34,8 +34,7 @@ protected:
 
     void processMessage(struct exsc_excon &con, QJsonObject &message);
 
-    void init(int exscDescriptor);
-
+protected:
     void setConnectionName(struct exsc_excon &con, const QString &name);
     void getConnectionsNames(QStringList &connectionIds);
 
@@ -45,13 +44,19 @@ protected:
     //void sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode);
 
     virtual void readMessage(struct exsc_excon &con, QJsonObject &message) = 0;
+    virtual void login(const QString &conName);
     virtual void logout(const QString &conName);
     virtual void closeConnection(struct exsc_excon &con);
 
 public:
+    void init(int exscDescriptor);
+
     void exsc_newcon(struct exsc_excon con);
     void exsc_closecon(struct exsc_excon con);
     void exsc_recv(struct exsc_excon con, char *buf, int bufsize);
+
+    QJsonObject conToJcon(exsc_excon &con);
+    exsc_excon jconToCon(const QJsonObject &jcon);
 
     //int connectionsCount();
     bool isOnline(const QString &name);

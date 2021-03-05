@@ -22,7 +22,7 @@ struct exsc_excon
 {
     int ix;                     // index in connections array
     int id;                     // unique identificator
-    char addr[INET_ADDRSTRLEN]; // connectin address
+    char addr[INET_ADDRSTRLEN]; // connection address
     char name[EXSC_CONNAMELEN]; // connection name
 };
 
@@ -65,6 +65,13 @@ void exsc_sendbyname(int des, char *conname, char *buf, int bufsize);
 // excon: connection
 // name: new connectin name
 void exsc_setconname(int des, struct exsc_excon *excon, char *name);
+
+// connect to some server via address and port (after connect we will be able to send and receive data)
+// des: server descitptor
+// addr: connection address
+// port: connection port
+// excon: connection
+void exsc_connect(int des, const char *addr, uint16_t port, struct exsc_excon *excon);
 
 #ifdef __cplusplus
 }

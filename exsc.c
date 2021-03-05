@@ -11,6 +11,7 @@
 #ifdef __linux__
 #include <unistd.h>
 #include <pthread.h>
+#include <netdb.h>
 #elif _WIN32
 #endif
 
@@ -128,8 +129,8 @@ void *exsc_thr(void *arg)
     struct exsc_srv *srv;
     int listen_sock;
     int opt;
-    struct sockaddr_in addr;
-    int addrsize;
+    struct sockaddr_in srvaddr;
+    int srvaddrsize;
     int new_sock;
     int i;
     int readsize;
@@ -142,7 +143,7 @@ void *exsc_thr(void *arg)
     thr_arg = arg;
     srv = &g_srvs[thr_arg->des];
 
-    if ((listen_sock = socket(AF_INET, SOCK_STREAM, 0)) == 0)
+    if ((listen_sock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
     {
         perror("socket");
         exit(EXIT_FAILURE);
@@ -157,13 +158,14 @@ void *exsc_thr(void *arg)
         exit(EXIT_FAILURE);
     }
 
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(srv->port);
-    addrsize = sizeof(addr);
+    srvaddrsize = sizeof(srvaddr);
 
-    if (bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    memset(&srvaddr, 0, srvaddrsize);
+    srvaddr.sin_family = AF_INET;
+    srvaddr.sin_addr.s_addr = INADDR_ANY;
+    srvaddr.sin_port = htons(srv->port);
+
+    if (bind(listen_sock, (struct sockaddr *)&srvaddr, srvaddrsize) < 0)
     {
         perror("bind");
         exit(EXIT_FAILURE);
@@ -183,7 +185,7 @@ void *exsc_thr(void *arg)
 
         pthread_mutex_lock(&srv->mtx);
 
-        while ((new_sock = accept(listen_sock, (struct sockaddr *)&addr, (socklen_t *)&addrsize)) > 0)
+        while ((new_sock = accept(listen_sock, (struct sockaddr *)&srvaddr, (socklen_t *)&srvaddrsize)) > 0)
         {
             setsocknonblock(new_sock);
 
@@ -199,7 +201,7 @@ void *exsc_thr(void *arg)
 
                     srv->incons[i].excon.ix = i;
                     srv->incons[i].excon.id = getconid();
-                    inet_ntop(AF_INET, &addr.sin_addr, srv->incons[i].excon.addr, INET_ADDRSTRLEN);
+                    inet_ntop(AF_INET, &srvaddr.sin_addr, srv->incons[i].excon.addr, INET_ADDRSTRLEN);
                     srv->incons[i].sock = new_sock;
                     srv->incons[i].recvbuf = exmalloc(srv->recvbufsize * sizeof(char), "exsc_thr recvbuf");
                     srv->incons[i].lastact = t;
@@ -283,6 +285,24 @@ void *exsc_thr(void *arg)
 
 void exsc_init(int maxsrvcnt)
 {
+    char buf[256];
+    int hostname;
+    struct hostent *host;
+
+#ifdef _WIN32
+    WSADATA wsaData = { 0 };
+    int iResult = 0;
+
+    iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+    if (iResult != 0)
+    {
+        wprintf(L"WSAStartup failed: %d\n", iResult);
+        perror("WSAStartup");
+        exit(EXIT_FAILURE);
+    }
+#endif
+
     g_maxsrvcnt = maxsrvcnt;
     g_srvs = exmalloc(g_maxsrvcnt * sizeof(struct exsc_srv), "exsc_init g_srvs");
     g_srvcnt = 0;
@@ -431,6 +451,78 @@ void exsc_setconname(int des, struct exsc_excon *excon, char *name)
         {
             printf("exsc_setconname WARNING name is too long");
         }
+    }
+    exunlock(srv);
+}
+
+void exsc_connect(int des, const char *addr, uint16_t port, struct exsc_excon *excon)
+{
+    struct exsc_srv *srv;
+    struct sockaddr_in srvaddr;
+    int srvaddrsize;
+    int new_sock;
+    int i;
+    time_t t;
+    struct hostent *host;
+
+    t = time(NULL);
+
+    if ((new_sock = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    setsocknonblock(new_sock);
+
+    if ((host = gethostbyname(addr)) == NULL)
+    {
+        perror("gethostbyname");
+        exit(EXIT_FAILURE);
+    }
+
+    srvaddrsize = sizeof(srvaddr);
+    memset(&srvaddr, 0, srvaddrsize);
+    srvaddr.sin_family = AF_INET;
+    memcpy(&srvaddr.sin_addr.s_addr, host->h_addr, host->h_length);
+    srvaddr.sin_port = htons(port);
+
+    connect(new_sock, (struct sockaddr *)&srvaddr, srvaddrsize);
+
+    srv = &g_srvs[des];
+
+    exlock(srv);
+    for (i = 0; i < srv->inconcnt; i++)
+    {
+        if (srv->incons[i].sock == 0)
+        {
+            if (srv->inconmax < i)
+            {
+                srv->inconmax = i;
+                printf("%d connections count: %d\n", des, srv->inconmax);
+            }
+
+            srv->incons[i].excon.ix = i;
+            srv->incons[i].excon.id = getconid();
+            inet_ntop(AF_INET, &srvaddr.sin_addr, srv->incons[i].excon.addr, INET_ADDRSTRLEN);
+            srv->incons[i].sock = new_sock;
+            srv->incons[i].recvbuf = exmalloc(srv->recvbufsize * sizeof(char), "exsc_thr recvbuf");
+            srv->incons[i].lastact = t;
+
+            *excon = srv->incons[i].excon;
+
+            break;
+        }
+    }
+
+    if (i < srv->inconcnt)
+    {
+        srv->callback_newcon(srv->incons[i].excon);
+    }
+    else
+    {
+        closesock(new_sock);
+        printf("exsc_thr WARNING connections are over\n");
     }
     exunlock(srv);
 }
