@@ -4,7 +4,7 @@
 #include <QFile>
 #include <QHostAddress>
 #include <QStandardPaths>
-
+//#include "../mt2/LogClient/logclient.h"
 
 void ExClient::exlog(QString text)
 {
@@ -23,16 +23,23 @@ void ExClient::exlog(QString text)
 
 void ExClient::connectToHost()
 {
-    mPingTimer.start();
+    if (mPingTimer == nullptr)
+    {
+        mPingTimer = new QTimer();
+        connect(mPingTimer, &QTimer::timeout, this, &ExClient::onPingTimerTimeout);
+        mPingTimer->setInterval(mPingIntervalSecs * 1000);
+    }
+    mPingTimer->start();
 
     if (mSocket != nullptr)
     {
+        mConnected = false;
         mSocket->disconnect();
         mSocket->deleteLater();
     }
 
     mSocket = new QTcpSocket(this);
-    mSocket->setSocketOption(QAbstractSocket::LowDelayOption,1);
+    //mSocket->setSocketOption(QAbstractSocket::LowDelayOption,1);
 
 
     connect(mSocket, &QTcpSocket::connected, this, &ExClient::onSocketConnected);
@@ -43,23 +50,25 @@ void ExClient::connectToHost()
 
 void ExClient::processMessage(const QJsonObject &message)
 {
-    if (message.contains("exnetwork_ping"))
+    if (message["type"].toString() == "ping")
     {
         updateLastActivity();
     }
     else
-    if (message.contains("exnetwork_error"))
+    if (message.contains("error"))
     {
-        exlog("Exclient: exnetwork_error: " + message["exnetwork_error"].toString());
-        emit errorEvent(message["exnetwork_error"].toString());
+        if (!message["error"].toString().isEmpty()) {
+            //qDebug()  << Q_FUNC_INFO << "ERROR" << message;
+            exlog("Exclient: error: " + message["error"].toString());
+            emit errorEvent(message["error"].toString(), message["errorCode"].toString());
+        }
     }
-
     readMessage(message);
 }
 
 void ExClient::updateLastActivity()
 {
-    mLastActivity = QDateTime::currentDateTime().toUTC().toSecsSinceEpoch();
+    mLastActivity = QDateTime::currentDateTime().toSecsSinceEpoch();
 }
 
 void ExClient::onSocketConnected()
@@ -68,6 +77,16 @@ void ExClient::onSocketConnected()
     updateLastActivity();
     onPingTimerTimeout();
     emit connectedEvent();
+
+    int currentTime = QDateTime::currentSecsSinceEpoch();
+    for (QJsonObject msg : mMessagesQueue)
+    {
+        if (currentTime - msg["timestamp"].toInt() < 5)
+        {
+            sendMessage(msg);
+        }
+    }
+    mMessagesQueue.clear();
 }
 
 void ExClient::onSocketReadyRead()
@@ -83,11 +102,6 @@ void ExClient::onSocketReadyRead()
 
 
     QByteArray rawMessage = mSocket->readAll();
-
-    if (rawMessage.contains("pass") && !rawMessage.contains("exnetwork_ping")) {
-            qDebug() << "ERROR!!!!" << rawMessage;
-    }
-
 
     mBuffer += rawMessage;
     QList<QByteArray> list = mBuffer.split('\n');
@@ -112,37 +126,100 @@ void ExClient::onSocketReadyRead()
 
 void ExClient::onPingTimerTimeout()
 {
-    qint64 currentDateTime = QDateTime::currentDateTime().toUTC().toSecsSinceEpoch();
+    qint64 currentDateTime = QDateTime::currentDateTime().toSecsSinceEpoch();
     if (currentDateTime - mLastActivity > mPingTimeoutSecs)
     {
         exlog("Reconnect");
         updateLastActivity();
         connectToHost();
     }
-
-    ping();
+    else
+    {
+        ping();
+    }
 }
 
-void ExClient::sendMessage(QJsonObject message)
+bool ExClient::sendMessage(QJsonObject message)
 {
+    //if (mClassName == "SignalsTransmitter")
+    //{
+    //    if (message["type"].toString() == "transmitSignal")
+    //    {
+    //        static int i = 0;
+    //        LogClient::sendLog(QString("SignalsTransmitter %0").arg(i++));
+    //   }
+    //}
+
+    bool ok = false;
+
     for (const QString &key : mTail.keys())
     {
         message[key] = mTail[key];
     }
 
-    if (mSocket)
-    if (mSocket->state() == QTcpSocket::ConnectedState)
+    if (mSocket != nullptr)
     {
-        mSocket->write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
-        mSocket->flush();
+        if (mSocket->state() == QTcpSocket::ConnectedState)
+        {
+            QByteArray buf = QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n';
+            if(mSocket->isWritable())
+            {
+                int sent = mSocket->write(buf);
+                if (sent == buf.length())
+                {
+                    ok = true;
+                }
+                else
+                if (sent == -1)
+                {
+                    //LogClient::sendLog("Error socket write error");
+                }
+                else
+                if (sent < buf.length())
+                {
+                    //LogClient::sendLog(QString("Error sendMessage: socket writes not all data (%0 %1)").arg(sent).arg(buf.length()));
+                }
+                else
+                if (sent > buf.length())
+                {
+                    //LogClient::sendLog(QString("Error sendMessage: socket writes more data than required [sent > buf.length] (%0 %1)").arg(sent).arg(buf.length()));
+                }
+                mSocket->flush();
+            }
+            else
+            {
+                //LogClient::sendLog("Error sendMessage: socket is not writeable");
+            }
+        }
+        else
+        {
+            //LogClient::sendLog("Error sendMessage: socket state is disconnected");
+        }
+
+        if (!ok)
+        {
+            if (!message.contains("timestamp"))
+            {
+                message["timestamp"] = QDateTime::currentSecsSinceEpoch();
+                mMessagesQueue.push_back(message);
+            }
+            connectToHost();
+        }
     }
+    else
+    {
+        //LogClient::sendLog("Error sendMessage: socket is nullptr");
+    }
+
+    return ok;
 }
 
 void ExClient::ping()
 {
     QJsonObject message;
-    message["exnetwork_ping"];
+    message["type"] = "ping";
     sendMessage(message);
+    //qDebug() << Q_FUNC_INFO;
 }
 
 void ExClient::removeFromTail(const QString &key)
@@ -159,14 +236,21 @@ ExClient::ExClient(const QString &className, QObject *parent) :
     QObject(parent),
     mClassName(className)
 {
-    connect(&mPingTimer, &QTimer::timeout, this, &ExClient::onPingTimerTimeout);
-    mPingTimer.setInterval(mPingIntervalSecs * 1000);
 }
 
 ExClient::~ExClient()
 {
-    mSocket->disconnect();
-    mSocket->deleteLater();
+    if (mSocket != nullptr)
+    {
+        mSocket->disconnect();
+        mSocket->deleteLater();
+    }
+
+    if (mPingTimer != nullptr)
+    {
+        mPingTimer->disconnect();
+        mPingTimer->deleteLater();
+    }
 }
 
 void ExClient::connectToHost(const QString &serverAddress, quint16 serverPort)
@@ -174,4 +258,8 @@ void ExClient::connectToHost(const QString &serverAddress, quint16 serverPort)
     mServerAddress = serverAddress;
     mServerPort = serverPort;
     connectToHost();
+}
+
+bool ExClient::isConnected() {
+    return mConnected;
 }

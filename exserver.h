@@ -12,7 +12,7 @@
 
 class ExServer
 {
-private:
+protected:
     int mMaxRequestsPerMinute = INT_MAX;
     time_t mRequestsPerMinuteClearTime = 0;
 
@@ -34,7 +34,6 @@ private:
 
     void processMessage(struct exsc_excon &con, QJsonObject &message);
 
-protected:
     void init(int exscDescriptor);
 
     void setConnectionName(struct exsc_excon &con, const QString &name);
@@ -43,7 +42,7 @@ protected:
     void sendMessage(struct exsc_excon &con, QJsonObject &message);
     void sendMessage(const QString &conName, QJsonObject &message);
 
-    void sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode);
+    //void sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode);
 
     virtual void readMessage(struct exsc_excon &con, QJsonObject &message) = 0;
     virtual void logout(const QString &conName);

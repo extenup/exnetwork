@@ -28,30 +28,30 @@ void ExServer::processMessage(struct exsc_excon &con, QJsonObject &message)
     time_t elapsed = t - mRequestsPerMinuteClearTime;
     if (elapsed > 60)
     {
-        //mRequestsPerMinuteMutex.lock();
         mRequestsPerMinute.clear();
         mRequestsPerMinuteClearTime = t;
-        //mRequestsPerMinuteMutex.unlock();
     }
 
-    //mRequestsPerMinuteMutex.lock();
     msgCount = mRequestsPerMinute[con.addr]++;
-    //mRequestsPerMinuteMutex.unlock();
 
-    if (msgCount < mMaxRequestsPerMinute)
+    if (mRequestsPerMinute[con.addr] > 1000)
+    {
+        addLog("logs/ban_list_detail.log", QString("%0 : %1\n\n")
+               .arg(con.addr)
+               .arg(QString(QJsonDocument(message).toJson())).toUtf8());
+    }
+
+    if (msgCount < mMaxRequestsPerMinute || QString(con.addr) == "127.0.0.1")
     {
         readMessage(con, message);
     }
     else
     {
-        //mBanListMutex.lock();
         if (!mBanList.contains(con.addr))
         {
             mBanList.push_back(con.addr);
-            //exsc_closecon(con);
-            addLog("/logs/ban_list.log", con.addr);
+            addLog("logs/ban_list.log", con.addr);
         }
-        //mBanListMutex.unlock();
     }
 }
 
@@ -111,13 +111,13 @@ void ExServer::sendMessage(const QString &conName, QJsonObject &message)
     }
 }
 
-void ExServer::sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode)
-{
-    QJsonObject msg;
-    msg["error"] = text;
-    msg["errorCode"] = errorCode;
-    sendMessage(con, msg);
-}
+//void ExServer::sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode)
+//{
+//    QJsonObject msg;
+//    msg["error"] = text;
+//    msg["errorCode"] = errorCode;
+//    sendMessage(con, msg);
+//}
 
 void ExServer::logout(const QString &conName)
 {

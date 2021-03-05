@@ -11,17 +11,18 @@ class ExClient : public QObject
 {
     Q_OBJECT
 
-private:
+protected:
     const int mPingIntervalSecs = 10;
-    const int mPingTimeoutSecs = int(mPingIntervalSecs * 1.5);
+    const int mPingTimeoutSecs = int(mPingIntervalSecs * 2.5);
 
-    QTimer mPingTimer;
+    QTimer *mPingTimer = nullptr;
     QString mServerAddress;
     quint16 mServerPort = 0;
     QTcpSocket *mSocket = nullptr;
     QByteArray mBuffer;
     qint64 mLastActivity = 0;
     QString mClassName;
+    QVector<QJsonObject> mMessagesQueue;
 
     void exlog(QString text);
 
@@ -41,7 +42,7 @@ private slots:
 
 
 protected:
-    void sendMessage(QJsonObject message);
+    bool sendMessage(QJsonObject message);
 
     void ping();
     
@@ -56,10 +57,11 @@ public:
     ExClient(const QString &className, QObject *parent = nullptr);
     ~ExClient();
     void connectToHost(const QString &serverAddress, quint16 serverPort);
+    bool isConnected();
 
 signals:
     void connectedEvent();
-    void errorEvent(const QString &error);
+    void errorEvent(const QString &error, const QString &errorCode);
 };
 
 #endif // EXCLIENT_H

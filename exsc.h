@@ -35,14 +35,16 @@ void exsc_init(int maxsrvcnt);
 // timeout: the time after which the server disconnects client in case of inactivity
 // timeframe: the time in wich the server must complete the request (10: faster but higher cpu usage, 100: slower but lower cpu usage)
 // concnt: maximum connections count
-// newcon: callback that calls when incoming new connection
-// closecon: callback that calls when close connection
-// recv: callback that calls when receive some data
+// newcon: callback that is called when incoming new connection
+// closecon: callback that is called when close connection
+// recv: callback that is called when receive some data
+// ext: callback that is called every iteration of the exsc loop
 // return value: server descriptor
 int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int concnt,
                void newcon(struct exsc_excon excon),
                void closecon(struct exsc_excon excon),
-               void recv(struct exsc_excon excon, char *buf, int bufsize));
+               void recv(struct exsc_excon excon, char *buf, int bufsize),
+               void ext());
 
 // send data via connection
 // des: server descitptor

@@ -44,6 +44,7 @@ struct exsc_srv
     void (*callback_newcon)(struct exsc_excon con);
     void (*callback_closecon)(struct exsc_excon con);
     void (*callback_recv)(struct exsc_excon con, char *buf, int bufsize);
+    void (*callback_ext)();
 
     pthread_mutex_t mtx;
     pthread_t thr;
@@ -57,6 +58,17 @@ struct exsc_thrarg
 int g_maxsrvcnt = 0;     // max servers count
 int g_srvcnt = 0;        // servers count
 struct exsc_srv *g_srvs; // servers
+
+void *exmalloc(size_t size, const char *desc)
+{
+    void *ptr = malloc(size);
+    if (ptr == NULL)
+    {
+        printf("ERROR malloc returns NULL %s", desc);
+        exit(1);
+    }
+    return ptr;
+}
 
 // sleep in milliseconds
 void sleepms(int time)
@@ -189,7 +201,7 @@ void *exsc_thr(void *arg)
                     srv->incons[i].excon.id = getconid();
                     inet_ntop(AF_INET, &addr.sin_addr, srv->incons[i].excon.addr, INET_ADDRSTRLEN);
                     srv->incons[i].sock = new_sock;
-                    srv->incons[i].recvbuf = malloc(srv->recvbufsize * sizeof(char));
+                    srv->incons[i].recvbuf = exmalloc(srv->recvbufsize * sizeof(char), "exsc_thr recvbuf");
                     srv->incons[i].lastact = t;
 
                     break;
@@ -251,6 +263,8 @@ void *exsc_thr(void *arg)
             }
         }
 
+        srv->callback_ext();
+
         pthread_mutex_unlock(&srv->mtx);
 
         endtime = gettimems();
@@ -270,14 +284,15 @@ void *exsc_thr(void *arg)
 void exsc_init(int maxsrvcnt)
 {
     g_maxsrvcnt = maxsrvcnt;
-    g_srvs = malloc(g_maxsrvcnt * sizeof(struct exsc_srv));
+    g_srvs = exmalloc(g_maxsrvcnt * sizeof(struct exsc_srv), "exsc_init g_srvs");
     g_srvcnt = 0;
 }
 
 int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int concnt,
                 void newcon(struct exsc_excon con),
                 void closecon(struct exsc_excon con),
-                void recv(struct exsc_excon con, char *, int))
+                void recv(struct exsc_excon con, char *, int),
+                void ext())
 {
     int des = -1;
     struct exsc_srv *srv;
@@ -297,14 +312,15 @@ int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int c
 
         srv->inconcnt = concnt;
         srv->inconmax = 0;
-        srv->incons = malloc(srv->inconcnt * sizeof(struct exsc_incon));
+        srv->incons = exmalloc(srv->inconcnt * sizeof(struct exsc_incon), "exsc_start incons");
         memset(srv->incons, 0, srv->inconcnt * sizeof(struct exsc_incon));
 
         srv->callback_newcon = newcon;
         srv->callback_closecon = closecon;
         srv->callback_recv = recv;
+        srv->callback_ext = ext;
 
-        arg = malloc(sizeof(struct exsc_thrarg));
+        arg = exmalloc(sizeof(struct exsc_thrarg), "exsc_start arg");
         arg->des = des;
 
         // initialize mutex
@@ -331,14 +347,14 @@ void exsend(struct exsc_srv *srv, struct exsc_excon *excon, char *buf, int bufsi
         if (srv->incons[excon->ix].sendbuf == NULL)
         {
             srv->incons[excon->ix].sendbufsize = bufsize;
-            srv->incons[excon->ix].sendbuf = malloc(srv->incons[excon->ix].sendbufsize * sizeof(char));
+            srv->incons[excon->ix].sendbuf = exmalloc(srv->incons[excon->ix].sendbufsize * sizeof(char), "exsend sendbuf");
             memcpy(srv->incons[excon->ix].sendbuf, buf, srv->incons[excon->ix].sendbufsize);
             srv->incons[excon->ix].sent = 0;
         }
         else
         {
             newbufsize = srv->incons[excon->ix].sendbufsize + bufsize;
-            newbuf = malloc(newbufsize * sizeof(char));
+            newbuf = exmalloc(newbufsize * sizeof(char), "exsend newbuf");
 
             memcpy(newbuf, srv->incons[excon->ix].sendbuf, srv->incons[excon->ix].sendbufsize);
             memcpy(newbuf + srv->incons[excon->ix].sendbufsize, buf, bufsize);
