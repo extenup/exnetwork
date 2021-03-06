@@ -34,6 +34,7 @@ void exsc_init(int maxsrvcnt);
 // port: server port
 // timeout: the time after which the server disconnects client in case of inactivity
 // timeframe: the time in wich the server must complete the request (10: faster but higher cpu usage, 100: slower but lower cpu usage)
+// recvbufsize: The size of the buffer that the server thread will read at a time
 // concnt: maximum connections count
 // newcon: callback that is called when incoming new connection
 // closecon: callback that is called when close connection
