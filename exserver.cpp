@@ -34,7 +34,7 @@ void ExServer::processMessage(struct exsc_excon &con, QJsonObject &message)
 
     msgCount = mRequestsPerMinute[con.addr]++;
 
-    if (msgCount < mMaxRequestsPerMinute || QString(con.addr) == "127.0.0.1")
+    if (msgCount < mMaxRequestsPerMinute || QString(con.addr) == "127.0.0.1" || mWhiteList.contains(con.addr))
     {
         readMessage(con, message);
     }
@@ -43,7 +43,7 @@ void ExServer::processMessage(struct exsc_excon &con, QJsonObject &message)
         if (!mBanList.contains(con.addr))
         {
             mBanList.push_back(con.addr);
-            addLog("logs/ban_list.log", con.addr);
+            addLog("/root/Desktop/Data/TradeStatistics/logs/ban_list.log", con.addr);
         }
     }
 }
@@ -98,6 +98,11 @@ void ExServer::sendMessage(const QString &conName, QJsonObject &message)
     {
         qDebug() << "WARNING" << Q_FUNC_INFO << "conName is EMPTY";
     }
+}
+
+void ExServer::addToWhiteList(const QString &addr)
+{
+    mWhiteList.insert(addr);
 }
 
 //void ExServer::sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode)

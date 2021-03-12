@@ -30,6 +30,8 @@ protected:
 
     int mExscDescriptor = 0;
 
+    QSet<QString> mWhiteList;
+
     void addLog(const QString &filename, const QString &text);
 
     void processMessage(struct exsc_excon &con, QJsonObject &message);
@@ -40,6 +42,8 @@ protected:
 
     void sendMessage(struct exsc_excon &con, QJsonObject &message);
     void sendMessage(const QString &conName, QJsonObject &message);
+
+    void addToWhiteList(const QString &addr);
 
     //void sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode);
 
