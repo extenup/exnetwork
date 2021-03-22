@@ -74,6 +74,11 @@ void exsc_setconname(int des, struct exsc_excon *excon, char *name);
 // excon: connection
 void exsc_connect(int des, const char *addr, uint16_t port, struct exsc_excon *excon);
 
+// ban address
+// des: server descitptor
+// addr: the address to be banned
+void exsc_banaddr(int des, const char *addr);
+
 #ifdef __cplusplus
 }
 #endif

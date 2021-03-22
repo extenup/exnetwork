@@ -42,6 +42,8 @@ struct exsc_srv
     int inconmax;
     struct exsc_incon *incons;
 
+    char (*banlst)[INET6_ADDRSTRLEN]; // ban list
+
     void (*callback_newcon)(struct exsc_excon con);
     void (*callback_closecon)(struct exsc_excon con);
     void (*callback_recv)(struct exsc_excon con, char *buf, int bufsize);
@@ -139,6 +141,8 @@ void *exsc_thr(void *arg)
     int begtime;
     int endtime;
     int waitms;
+    char newsockaddr[INET_ADDRSTRLEN];
+    int isbanaddr;
 
     thr_arg = arg;
     srv = &g_srvs[thr_arg->des];
@@ -187,37 +191,64 @@ void *exsc_thr(void *arg)
 
         while ((new_sock = accept(listen_sock, (struct sockaddr *)&srvaddr, (socklen_t *)&srvaddrsize)) > 0)
         {
-            setsocknonblock(new_sock);
+            inet_ntop(AF_INET, &srvaddr.sin_addr, newsockaddr, INET_ADDRSTRLEN);
 
-            for (i = 0; i < srv->inconcnt; i++)
+            isbanaddr = 0;
+            for (i = 0; i < srv->inconmax + 1; i++)
             {
-                if (srv->incons[i].sock == 0)
+                if (strcmp(srv->banlst[i], "") != 0)
                 {
-                    if (srv->inconmax < i)
+                    if (strcmp(srv->banlst[i], newsockaddr) == 0)
                     {
-                        srv->inconmax = i;
-                        printf("%d connections count: %d\n", thr_arg->des, srv->inconmax);
+                        isbanaddr = 1;
+                        break;
                     }
-
-                    srv->incons[i].excon.ix = i;
-                    srv->incons[i].excon.id = getconid();
-                    inet_ntop(AF_INET, &srvaddr.sin_addr, srv->incons[i].excon.addr, INET_ADDRSTRLEN);
-                    srv->incons[i].sock = new_sock;
-                    srv->incons[i].recvbuf = exmalloc(srv->recvbufsize * sizeof(char), "exsc_thr recvbuf");
-                    srv->incons[i].lastact = t;
-
+                }
+                else
+                {
                     break;
                 }
             }
 
-            if (i < srv->inconcnt)
+            if (isbanaddr == 0)
             {
-                srv->callback_newcon(srv->incons[i].excon);
+                setsocknonblock(new_sock);
+
+                for (i = 0; i < srv->inconcnt; i++)
+                {
+                    if (srv->incons[i].sock == 0)
+                    {
+                        if (srv->inconmax < i)
+                        {
+                            srv->inconmax = i;
+                            printf("%d connections count: %d\n", thr_arg->des, srv->inconmax);
+                        }
+
+                        srv->incons[i].excon.ix = i;
+                        srv->incons[i].excon.id = getconid();
+                        memcpy(srv->incons[i].excon.addr, newsockaddr, INET_ADDRSTRLEN);
+                        srv->incons[i].sock = new_sock;
+                        srv->incons[i].recvbuf = exmalloc(srv->recvbufsize * sizeof(char), "exsc_thr recvbuf");
+                        srv->incons[i].lastact = t;
+
+                        break;
+                    }
+                }
+
+                if (i < srv->inconcnt)
+                {
+                    srv->callback_newcon(srv->incons[i].excon);
+                }
+                else
+                {
+                    closesock(new_sock);
+                    printf("exsc_thr WARNING connections are over\n");
+                }
             }
             else
             {
                 closesock(new_sock);
-                printf("exsc_thr WARNING connections are over\n");
+                printf("exsc_thr addr %s is banned\n", newsockaddr);
             }
         }
 
@@ -233,20 +264,23 @@ void *exsc_thr(void *arg)
                         srv->callback_recv(srv->incons[i].excon, srv->incons[i].recvbuf, readsize);
                     }
 
-                    sent = send(srv->incons[i].sock,
-                                srv->incons[i].sendbuf + srv->incons[i].sent,
-                                srv->incons[i].sendbufsize - srv->incons[i].sent,
-                                MSG_NOSIGNAL);
-
-                    if (sent > 0)
+                    if (srv->incons[i].sendbufsize > 0)
                     {
-                        srv->incons[i].sent += sent;
-                        if (srv->incons[i].sent == srv->incons[i].sendbufsize)
+                        sent = send(srv->incons[i].sock,
+                                    srv->incons[i].sendbuf + srv->incons[i].sent,
+                                    srv->incons[i].sendbufsize - srv->incons[i].sent,
+                                    MSG_NOSIGNAL);
+
+                        if (sent > 0)
                         {
-                            free(srv->incons[i].sendbuf);
-                            srv->incons[i].sendbuf = NULL;
-                            srv->incons[i].sendbufsize = 0;
-                            srv->incons[i].sent = 0;
+                            srv->incons[i].sent += sent;
+                            if (srv->incons[i].sent == srv->incons[i].sendbufsize)
+                            {
+                                free(srv->incons[i].sendbuf);
+                                srv->incons[i].sendbuf = NULL;
+                                srv->incons[i].sendbufsize = 0;
+                                srv->incons[i].sent = 0;
+                            }
                         }
                     }
                 }
@@ -334,6 +368,9 @@ int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int c
         srv->inconmax = 0;
         srv->incons = exmalloc(srv->inconcnt * sizeof(struct exsc_incon), "exsc_start incons");
         memset(srv->incons, 0, srv->inconcnt * sizeof(struct exsc_incon));
+
+        srv->banlst = exmalloc(srv->inconcnt * INET_ADDRSTRLEN, "exsc_start banlst");
+        memset(srv->banlst, 0, srv->inconcnt * INET6_ADDRSTRLEN);
 
         srv->callback_newcon = newcon;
         srv->callback_closecon = closecon;
@@ -523,6 +560,25 @@ void exsc_connect(int des, const char *addr, uint16_t port, struct exsc_excon *e
     {
         closesock(new_sock);
         printf("exsc_thr WARNING connections are over\n");
+    }
+    exunlock(srv);
+}
+
+void exsc_banaddr(int des, const char *addr)
+{
+    struct exsc_srv *srv;
+    int ix;
+
+    srv = &g_srvs[des];
+
+    exlock(srv);
+    for (ix = 0; ix < srv->inconmax + 1; ix++)
+    {
+        if (strcmp(srv->banlst[ix], "") == 0)
+        {
+            memcpy(srv->banlst[ix], addr, strlen(addr));
+            break;
+        }
     }
     exunlock(srv);
 }
