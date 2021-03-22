@@ -1,3 +1,5 @@
+// version 1.0.0
+
 /*
  * light weight pthread compatible library for Windows
  * (C) 2009 Okamura Yasunobu

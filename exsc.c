@@ -1,3 +1,5 @@
+// version 1.0.0
+
 #include "exsc.h"
 
 #include <stdio.h>
@@ -133,7 +135,9 @@ void *exsc_thr(void *arg)
     int opt;
     struct sockaddr_in srvaddr;
     int srvaddrsize;
-    int new_sock;
+    int newsock;
+    char newsockaddr[INET_ADDRSTRLEN];
+    int isbanaddr;
     int i;
     int readsize;
     time_t t;
@@ -141,8 +145,6 @@ void *exsc_thr(void *arg)
     int begtime;
     int endtime;
     int waitms;
-    char newsockaddr[INET_ADDRSTRLEN];
-    int isbanaddr;
 
     thr_arg = arg;
     srv = &g_srvs[thr_arg->des];
@@ -189,7 +191,7 @@ void *exsc_thr(void *arg)
 
         pthread_mutex_lock(&srv->mtx);
 
-        while ((new_sock = accept(listen_sock, (struct sockaddr *)&srvaddr, (socklen_t *)&srvaddrsize)) > 0)
+        while ((newsock = accept(listen_sock, (struct sockaddr *)&srvaddr, (socklen_t *)&srvaddrsize)) > 0)
         {
             inet_ntop(AF_INET, &srvaddr.sin_addr, newsockaddr, INET_ADDRSTRLEN);
 
@@ -212,7 +214,7 @@ void *exsc_thr(void *arg)
 
             if (isbanaddr == 0)
             {
-                setsocknonblock(new_sock);
+                setsocknonblock(newsock);
 
                 for (i = 0; i < srv->inconcnt; i++)
                 {
@@ -227,7 +229,7 @@ void *exsc_thr(void *arg)
                         srv->incons[i].excon.ix = i;
                         srv->incons[i].excon.id = getconid();
                         memcpy(srv->incons[i].excon.addr, newsockaddr, INET_ADDRSTRLEN);
-                        srv->incons[i].sock = new_sock;
+                        srv->incons[i].sock = newsock;
                         srv->incons[i].recvbuf = exmalloc(srv->recvbufsize * sizeof(char), "exsc_thr recvbuf");
                         srv->incons[i].lastact = t;
 
@@ -241,13 +243,13 @@ void *exsc_thr(void *arg)
                 }
                 else
                 {
-                    closesock(new_sock);
+                    closesock(newsock);
                     printf("exsc_thr WARNING connections are over\n");
                 }
             }
             else
             {
-                closesock(new_sock);
+                closesock(newsock);
                 printf("exsc_thr addr %s is banned\n", newsockaddr);
             }
         }

@@ -1,3 +1,5 @@
+// version 1.0.0
+
 #ifndef EXSC_H
 #define EXSC_H
 #ifdef __cplusplus
