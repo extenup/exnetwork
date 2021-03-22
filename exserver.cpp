@@ -1,8 +1,11 @@
+// version 1.0.0
+
 #include "exserver.h"
 #include <QJsonDocument>
 #include <QDateTime>
 #include <QFile>
 #include <QDebug>
+#include <QDir>
 
 void ExServer::addLog(const QString &filePath, const QString &text)
 {
@@ -34,7 +37,14 @@ void ExServer::processMessage(struct exsc_excon &con, QJsonObject &message)
 
     msgCount = mRequestsPerMinute[con.addr]++;
 
-    if (msgCount < mMaxRequestsPerMinute || QString(con.addr) == "127.0.0.1" || mWhiteList.contains(con.addr))
+    if (mRequestsPerMinute[con.addr] > 1000)
+    {
+        addLog("logs/ban_list_detail.log", QString("%0 : %1\n\n")
+               .arg(con.addr)
+               .arg(QString(QJsonDocument(message).toJson())).toUtf8());
+    }
+
+    if (msgCount < mMaxRequestsPerMinute || QString(con.addr) == "127.0.0.1")
     {
         readMessage(con, message);
     }
@@ -42,27 +52,27 @@ void ExServer::processMessage(struct exsc_excon &con, QJsonObject &message)
     {
         if (!mBanList.contains(con.addr))
         {
+            exsc_banaddr(mExscDescriptor, con.addr);
             mBanList.push_back(con.addr);
-            addLog("/root/Desktop/Data/TradeStatistics/logs/ban_list.log", con.addr);
+            addLog("logs/ban_list.log", con.addr);
         }
     }
+}
+
+void ExServer::init(int exscDescriptor)
+{
+    mExscDescriptor = exscDescriptor;
 }
 
 void ExServer::setConnectionName(struct exsc_excon &con, const QString &name)
 {
     exsc_setconname(mExscDescriptor, &con, name.toUtf8().data());
-    if (!mOnline.contains(name))
-    {
-        login(name);
-    }
     mOnline[name]++;
 }
 
 void ExServer::getConnectionsNames(QStringList &connectionsNames)
 {
-    //mOnlineMutex.lock();
     connectionsNames = mOnline.keys();
-    //mOnlineMutex.unlock();
 }
 
 void ExServer::sendMessage(struct exsc_excon &con, QJsonObject &message)
@@ -100,24 +110,6 @@ void ExServer::sendMessage(const QString &conName, QJsonObject &message)
     }
 }
 
-void ExServer::addToWhiteList(const QString &addr)
-{
-    mWhiteList.insert(addr);
-}
-
-//void ExServer::sendErrorMessage(struct exsc_excon &con, const QString &text, const QString &errorCode)
-//{
-//    QJsonObject msg;
-//    msg["error"] = text;
-//    msg["errorCode"] = errorCode;
-//    sendMessage(con, msg);
-//}
-
-void ExServer::login(const QString &conName)
-{
-    Q_UNUSED(conName)
-}
-
 void ExServer::logout(const QString &conName)
 {
     Q_UNUSED(conName)
@@ -128,35 +120,46 @@ void ExServer::closeConnection(struct exsc_excon &con)
     Q_UNUSED(con)
 }
 
-void ExServer::init(int exscDescriptor)
+ExServer::ExServer()
 {
-    mExscDescriptor = exscDescriptor;
+    QDir().mkpath("logs");
 }
 
 void ExServer::exsc_newcon(struct exsc_excon con)
 {
-    //mBanListMutex.lock();
-    bool ok = !mBanList.contains(con.addr);
-    //mBanListMutex.unlock();
-    if (ok)
+    mActiveAddresses[con.addr]++;
+    if (mActiveAddresses[con.addr] > mMaxActiveAddresses)
     {
-        //mBuffersMutex.lock();
-        mBuffers[con.id]; // Create buffer
-        //mBuffersMutex.unlock();
+        exsc_banaddr(mExscDescriptor, con.addr);
+        mBanList.push_back(con.addr);
+        mActiveAddresses.remove(con.addr);
     }
-    //else
-    //{
-    //    exsc_closecon(con);
-    //}
+
+    if (!mBanList.contains(con.addr))
+    {
+        mBuffers[con.id]; // Create buffer
+    }
 }
 
 void ExServer::exsc_closecon(struct exsc_excon con)
 {
+    mActiveAddresses[con.addr]--;
+    if (mActiveAddresses[con.addr] == 0)
+    {
+        mActiveAddresses.remove(con.addr);
+    }
+
     mBuffers.remove(con.id);
+
+    bool lo = false;
     mOnline[con.name]--;
     if (mOnline[con.name] == 0)
     {
         mOnline.remove(con.name);
+        lo = true;
+    }
+    if (lo)
+    {
         logout(con.name);
     }
 }
@@ -167,90 +170,44 @@ void ExServer::exsc_recv(struct exsc_excon con, char *buf, int bufsize)
     {
         QList<QByteArray> msgs;
 
-        //mBuffersMutex.lock();
         if (mBuffers.contains(con.id))
         {
             mBuffers[con.id].append(buf, bufsize);
-            if (mBuffers[con.id].contains("HTTP/1.1 200 OK"))
+            msgs = mBuffers[con.id].split('\n');
+            if (msgs.size() > 1)
             {
-                QStringList sl = QString(mBuffers[con.id]).split("\r\n\r\n");
-                if (sl.size() == 2)
+                mBuffers[con.id] = msgs.last();
+                msgs.pop_back();
+
+                for (const QByteArray &msg : qAsConst(msgs))
                 {
-                    QJsonObject jmsg = QJsonDocument::fromJson(sl[1].toUtf8()).object();
+                    QJsonObject jmsg = QJsonDocument::fromJson(msg).object();
                     if (!jmsg.isEmpty())
                     {
                         processMessage(con, jmsg);
                     }
                     else
                     {
-                        qDebug() << "WRONG MESSAGE" << mBuffers[con.id];
-                    }
-                }
-            }
-            else
-            {
-                msgs = mBuffers[con.id].split('\n');
-                if (msgs.size() > 1)
-                {
-                    mBuffers[con.id] = msgs.last();
-                    msgs.pop_back();
-
-                    for (const QByteArray &msg : msgs)
-                    {
-                        QJsonObject jmsg = QJsonDocument::fromJson(msg).object();
-                        if (!jmsg.isEmpty())
-                        {
-                            processMessage(con, jmsg);
-                        }
-                        else
-                        {
-                            qDebug() << "WRONG MESSAGE" << msg;
-                        }
+                        qDebug() << "WRONG MESSAGE" << msg;
                     }
                 }
             }
         }
-        //mBuffersMutex.unlock();
     }
 }
 
-QJsonObject ExServer::conToJcon(exsc_excon &con)
-{
-    QJsonObject jcon;
-    jcon["ix"] = con.ix;
-    jcon["id"] = con.id;
-    jcon["addr"] = con.addr;
-    jcon["name"] = con.name;
-    return jcon;
-}
-
-exsc_excon ExServer::jconToCon(const QJsonObject &jcon)
-{
-    exsc_excon con;
-    con.ix = jcon["ix"].toInt();
-    con.id = jcon["id"].toInt();
-    strcpy(con.addr, jcon["addr"].toString().toUtf8().data());
-    strcpy(con.name, jcon["name"].toString().toUtf8().data());
-    return con;
-}
-
-//int ExServer::connectionsCount()
-//{
-//    //mBuffersMutex.lock();
-//    int cnt = mBuffers.count();
-//    //mBuffersMutex.unlock();
-//    return cnt;
-//}
-
 bool ExServer::isOnline(const QString &name)
 {
-    //mOnlineMutex.lock();
     bool io = mOnline.contains(name);
-    //mOnlineMutex.unlock();
     return io;
 }
 
 void ExServer::setMaxRequestsPerMinute(int maxRequestsPerMinute)
 {
     mMaxRequestsPerMinute = maxRequestsPerMinute;
+}
+
+void ExServer::setMaxActiveAddresses(int maxActiveAddresses)
+{
+    mMaxActiveAddresses = maxActiveAddresses;
 }

@@ -127,6 +127,19 @@ void closesock(int sock)
 }
 #endif
 
+void delcon(struct exsc_srv *srv, int conix)
+{
+    srv->callback_closecon(srv->incons[conix].excon);
+
+    closesock(srv->incons[conix].sock);
+    free(srv->incons[conix].recvbuf);
+    if (srv->incons[conix].sendbuf != NULL)
+    {
+        free(srv->incons[conix].sendbuf);
+    }
+    memset(&srv->incons[conix], 0, sizeof(struct exsc_incon));
+}
+
 void *exsc_thr(void *arg)
 {
     struct exsc_thrarg *thr_arg;
@@ -288,15 +301,7 @@ void *exsc_thr(void *arg)
                 }
                 else
                 {
-                    srv->callback_closecon(srv->incons[i].excon);
-
-                    closesock(srv->incons[i].sock);
-                    free(srv->incons[i].recvbuf);
-                    if (srv->incons[i].sendbuf != NULL)
-                    {
-                        free(srv->incons[i].sendbuf);
-                    }
-                    memset(&srv->incons[i], 0, sizeof(struct exsc_incon));
+                    delcon(srv, i);
                 }
             }
         }
@@ -321,10 +326,6 @@ void *exsc_thr(void *arg)
 
 void exsc_init(int maxsrvcnt)
 {
-    char buf[256];
-    int hostname;
-    struct hostent *host;
-
 #ifdef _WIN32
     WSADATA wsaData = { 0 };
     int iResult = 0;
@@ -580,6 +581,14 @@ void exsc_banaddr(int des, const char *addr)
         {
             memcpy(srv->banlst[ix], addr, strlen(addr));
             break;
+        }
+    }
+
+    for (ix = 0; ix < srv->inconmax + 1; ix++)
+    {
+        if (strcmp(srv->incons[ix].excon.name, addr) == 0)
+        {
+            delcon(srv, ix);
         }
     }
     exunlock(srv);

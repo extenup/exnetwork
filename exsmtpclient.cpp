@@ -20,7 +20,8 @@ bool ExSmtpClient::sendMail(const QString &from, const QString &to, const QStrin
 
     message.append( "--frontier\n" );
     //message.append( "Content-Type: text/html\n\n" );  //Uncomment this for HTML formating, coment the line below
-    message.append( "Content-Type: text/plain\n\n" );
+    //message.append( "Content-Type: text/plain\n\n" );
+    message.append("Content-Type: text/html; charset=UTF8;\n\n");
     message.append(body);
     message.append("\n\n");
 
