@@ -1,4 +1,4 @@
-// version 1.0.0
+// version 1.0.1
 
 #include "exserver.h"
 #include <QJsonDocument>
@@ -132,6 +132,7 @@ void ExServer::exsc_newcon(struct exsc_excon con)
     {
         exsc_banaddr(mExscDescriptor, con.addr);
         mBanList.push_back(con.addr);
+        addLog("logs/ban_list.log", con.addr);
         mActiveAddresses.remove(con.addr);
     }
 

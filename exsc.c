@@ -1,4 +1,4 @@
-// version 1.0.0
+// version 1.0.1
 
 #include "exsc.h"
 
@@ -373,7 +373,7 @@ int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int c
         memset(srv->incons, 0, srv->inconcnt * sizeof(struct exsc_incon));
 
         srv->banlst = exmalloc(srv->inconcnt * INET_ADDRSTRLEN, "exsc_start banlst");
-        memset(srv->banlst, 0, srv->inconcnt * INET6_ADDRSTRLEN);
+        memset(srv->banlst, 0, srv->inconcnt * INET_ADDRSTRLEN);
 
         srv->callback_newcon = newcon;
         srv->callback_closecon = closecon;
