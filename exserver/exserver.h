@@ -9,7 +9,7 @@
 #include <QHash>
 #include <QVector>
 #include <QJsonObject>
-#include "exsc.h"
+#include "../exsc/exsc.h"
 
 class ExServer
 {
