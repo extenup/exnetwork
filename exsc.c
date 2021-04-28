@@ -1,4 +1,4 @@
-// version 1.0.1
+// version 1.0.2
 
 #include "exsc.h"
 
@@ -486,6 +486,7 @@ void exsc_setconname(int des, struct exsc_excon *excon, char *name)
         if (strlen(name) + 1 < EXSC_CONNAMELEN)
         {
             memcpy(srv->incons[excon->ix].excon.name, name, sizeof(srv->incons[excon->ix].excon.name) - 1);
+            memcpy(excon->name, name, sizeof(srv->incons[excon->ix].excon.name) - 1);
         }
         else
         {
