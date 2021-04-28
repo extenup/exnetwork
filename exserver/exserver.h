@@ -1,4 +1,4 @@
-// version 1.0.0
+// version 1.0.1
 
 #ifndef EXSERVER_H
 #define EXSERVER_H
@@ -28,6 +28,8 @@ protected:
     QMap<int, QByteArray> mBuffers;
     QMap<QString, int> mOnline;
 
+    QSet<QString> mWhiteList;
+
     void addLog(const QString &filename, const QString &text);
 
     void processMessage(struct exsc_excon &con, QJsonObject &message);
@@ -39,6 +41,8 @@ protected:
 
     void sendMessage(struct exsc_excon &con, QJsonObject &message);
     void sendMessage(const QString &conName, QJsonObject &message);
+
+    void addToWhiteList(const QString &addr);
 
     virtual void readMessage(struct exsc_excon &con, QJsonObject &message) = 0;
     virtual void logout(const QString &conName);

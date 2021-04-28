@@ -1,4 +1,4 @@
-// version 1.0.0
+// version 1.0.1
 
 #include "exserver.h"
 #include <QJsonDocument>
@@ -44,7 +44,7 @@ void ExServer::processMessage(struct exsc_excon &con, QJsonObject &message)
                .arg(QString(QJsonDocument(message).toJson())).toUtf8());
     }
 
-    if (msgCount < mMaxRequestsPerMinute || QString(con.addr) == "127.0.0.1")
+    if (msgCount < mMaxRequestsPerMinute || QString(con.addr) == "127.0.0.1" || mWhiteList.contains(con.addr))
     {
         readMessage(con, message);
     }
@@ -108,6 +108,11 @@ void ExServer::sendMessage(const QString &conName, QJsonObject &message)
     {
         qDebug() << "WARNING" << Q_FUNC_INFO << "conName is EMPTY";
     }
+}
+
+void ExServer::addToWhiteList(const QString &addr)
+{
+    mWhiteList.insert(addr);
 }
 
 void ExServer::logout(const QString &conName)
