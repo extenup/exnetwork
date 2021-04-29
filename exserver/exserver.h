@@ -1,15 +1,15 @@
-// version 1.0.2
+// version 1.0.3
 
 #ifndef EXSERVER_H
 #define EXSERVER_H
 
+#include "../exsc/exsc.h"
 #include <QObject>
 #include <QString>
 #include <QMap>
 #include <QHash>
 #include <QVector>
 #include <QJsonObject>
-#include "../exsc/exsc.h"
 #include <QSet>
 
 class ExServer

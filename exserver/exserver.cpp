@@ -1,4 +1,4 @@
-// version 1.0.2
+// version 1.0.3
 
 #include "exserver.h"
 #include <QJsonDocument>
@@ -198,7 +198,7 @@ void ExServer::exsc_recv(struct exsc_excon con, char *buf, int bufsize)
                     }
                     else
                     {
-                        qDebug() << "WRONG MESSAGE" << msg;
+                        //qDebug() << "WRONG MESSAGE" << msg;
                     }
                 }
             }
