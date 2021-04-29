@@ -1,4 +1,4 @@
-// version 1.0.1
+// version 1.0.2
 
 #ifndef EXSERVER_H
 #define EXSERVER_H
@@ -10,6 +10,7 @@
 #include <QVector>
 #include <QJsonObject>
 #include "../exsc/exsc.h"
+#include <QSet>
 
 class ExServer
 {
@@ -45,6 +46,7 @@ protected:
     void addToWhiteList(const QString &addr);
 
     virtual void readMessage(struct exsc_excon &con, QJsonObject &message) = 0;
+    virtual void login(const QString &conName);
     virtual void logout(const QString &conName);
     virtual void closeConnection(struct exsc_excon &con);
 

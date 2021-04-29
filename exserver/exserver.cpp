@@ -1,4 +1,4 @@
-// version 1.0.1
+// version 1.0.2
 
 #include "exserver.h"
 #include <QJsonDocument>
@@ -113,6 +113,11 @@ void ExServer::sendMessage(const QString &conName, QJsonObject &message)
 void ExServer::addToWhiteList(const QString &addr)
 {
     mWhiteList.insert(addr);
+}
+
+void ExServer::login(const QString &conName)
+{
+    Q_UNUSED(conName)
 }
 
 void ExServer::logout(const QString &conName)
