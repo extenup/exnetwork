@@ -1,2 +1,2 @@
 # exnetwork
-Client-server library
+Client-server framework
