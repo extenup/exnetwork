@@ -1,4 +1,4 @@
-// version 1.0.2
+// version 2
 
 #include "exsc.h"
 
@@ -36,8 +36,8 @@ struct exsc_incon
 struct exsc_srv
 {
     uint16_t port;
-    int timeout;   // seconds
-    int timeframe; // milliseconds
+    int timeout_sec;
+    int timeframe_msec;
     int recvbufsize;
 
     int inconcnt;
@@ -271,7 +271,7 @@ void *exsc_thr(void *arg)
         {
             if (srv->incons[i].sock != 0)
             {
-                if (t - srv->incons[i].lastact < srv->timeout)
+                if (t - srv->incons[i].lastact < srv->timeout_sec)
                 {
                     if ((readsize = recv(srv->incons[i].sock, srv->incons[i].recvbuf, srv->recvbufsize, 0)) > 0)
                     {
@@ -312,7 +312,7 @@ void *exsc_thr(void *arg)
 
         endtime = gettimems();
 
-        waitms = srv->timeframe - (endtime - begtime);
+        waitms = srv->timeframe_msec - (endtime - begtime);
         if (waitms < 0)
         {
             waitms = 0;
@@ -345,7 +345,7 @@ void exsc_init(int maxsrvcnt)
     g_srvcnt = 0;
 }
 
-int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int concnt,
+int exsc_start(uint16_t port, int timeout_sec, int timeframe_msec, int recvbufsize, int concnt,
                 void newcon(struct exsc_excon con),
                 void closecon(struct exsc_excon con),
                 void recv(struct exsc_excon con, char *, int),
@@ -363,8 +363,8 @@ int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int c
         g_srvcnt++;
 
         srv->port = port;
-        srv->timeout = timeout;
-        srv->timeframe = timeframe;
+        srv->timeout_sec = timeout_sec;
+        srv->timeframe_msec = timeframe_msec;
         srv->recvbufsize = recvbufsize;
 
         srv->inconcnt = concnt;

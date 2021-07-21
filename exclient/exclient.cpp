@@ -1,3 +1,5 @@
+// version 1
+
 #include "exclient.h"
 #include <QJsonDocument>
 #include <QDateTime>

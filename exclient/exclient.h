@@ -1,3 +1,5 @@
+// version 1
+
 #ifndef EXCLIENT_H
 #define EXCLIENT_H
 
@@ -54,7 +56,7 @@ protected:
     virtual void readMessage(const QJsonObject &message) = 0;
 
 public:
-    ExClient(const QString &className, QObject *parent = nullptr);
+    ExClient(const QString &className = "", QObject *parent = nullptr);
     ~ExClient();
     void connectToHost(const QString &serverAddress, quint16 serverPort);
     bool isConnected();

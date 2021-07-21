@@ -1,4 +1,4 @@
-// version 1.0.0
+// version 1
 
 /*
  * light weight pthread compatible library for Windows
