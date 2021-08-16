@@ -206,6 +206,26 @@ void ExServer::exsc_recv(struct exsc_excon con, char *buf, int bufsize)
     }
 }
 
+QJsonObject ExServer::conToJcon(exsc_excon &con)
+{
+    QJsonObject jcon;
+    jcon["ix"] = con.ix;
+    jcon["id"] = con.id;
+    jcon["addr"] = con.addr;
+    jcon["name"] = con.name;
+    return jcon;
+}
+
+exsc_excon ExServer::jconToCon(const QJsonObject &jcon)
+{
+    exsc_excon con;
+    con.ix = jcon["ix"].toInt();
+    con.id = jcon["id"].toInt();
+    strcpy(con.addr, jcon["addr"].toString().toUtf8().data());
+    strcpy(con.name, jcon["name"].toString().toUtf8().data());
+    return con;
+}
+
 bool ExServer::isOnline(const QString &name)
 {
     bool io = mOnline.contains(name);

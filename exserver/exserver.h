@@ -57,6 +57,9 @@ public:
     void exsc_closecon(struct exsc_excon con);
     void exsc_recv(struct exsc_excon con, char *buf, int bufsize);
 
+    QJsonObject conToJcon(exsc_excon &con);
+    exsc_excon jconToCon(const QJsonObject &jcon);
+
     bool isOnline(const QString &name);
     void setMaxRequestsPerMinute(int maxRequestsPerMinute);
     void setMaxActiveAddresses(int maxActiveAddresses);
