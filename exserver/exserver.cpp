@@ -161,16 +161,14 @@ void ExServer::exsc_closecon(struct exsc_excon con)
 
     mBuffers.remove(con.id);
 
-    bool lo = false;
-    mOnline[con.name]--;
-    if (mOnline[con.name] == 0)
+    if (mOnline.contains(con.name))
     {
-        mOnline.remove(con.name);
-        lo = true;
-    }
-    if (lo)
-    {
-        logout(con.name);
+        mOnline[con.name]--;
+        if (mOnline[con.name] <= 0)
+        {
+            mOnline.remove(con.name);
+            logout(con.name);
+        }
     }
 }
 
