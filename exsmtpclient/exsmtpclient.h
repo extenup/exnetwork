@@ -12,12 +12,15 @@ protected:
     QString mPass;
     QString mHost;
     quint16 mPort;
+    QSslSocket *mSocket = nullptr;
 
 public:
     ExSmtpClient(QObject *parent = nullptr);
-    void init(const QString &user, const QString &pass, const QString &host, quint16 port = 465);
-    bool sendMail( const QString &from, const QString &to,
+    int sendMessage(const QString &msg, QString &response);
+
+    bool login(const QString &user, const QString &pass, const QString &host, quint16 port);
+    int sendMail(const QString &from, const QString &to,
                    const QString &subject, const QString &body,
-                   QStringList files = QStringList());
+                   QStringList files);
 };
 #endif

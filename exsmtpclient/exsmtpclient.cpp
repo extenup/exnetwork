@@ -7,8 +7,69 @@ ExSmtpClient::ExSmtpClient(QObject *parent) :
 {
 }
 
-bool ExSmtpClient::sendMail(const QString &from, const QString &to, const QString &subject, const QString &body, QStringList files)
+int ExSmtpClient::sendMessage(const QString &msg, QString &response)
 {
+    int res = -1;
+    if (mSocket != nullptr)
+    {
+        mSocket->write(QString("%0").arg(msg).toUtf8());
+        mSocket->waitForReadyRead();
+        response = mSocket->readAll();
+        res = response.mid(0, 3).toInt();
+    }
+    return res;
+}
+
+bool ExSmtpClient::login(const QString &user, const QString &pass, const QString &host, quint16 port)
+{
+    QString lastResponse;
+
+    mUser = user;
+    mPass = pass;
+    mHost = host;
+    mPort = port;
+
+    int res = -1;
+
+    if (mSocket != nullptr)
+    {
+        mSocket->deleteLater();
+    }
+    mSocket = new QSslSocket();
+
+    mSocket->connectToHostEncrypted(mHost, mPort);
+    if (mSocket->waitForEncrypted())
+    {
+        if (mSocket->waitForReadyRead())
+        {
+            if (mSocket->readAll().mid(0, 3).toInt() == 220)
+            {
+                if ((res = sendMessage("EHLO localhost\r\n", lastResponse)) == 250)
+                //if ((res = sendMessage("EHLO localhost\r\n", lastResponse)) == 220)
+                {
+                    if ((res = sendMessage("AUTH LOGIN\r\n", lastResponse)) == 334)
+                    {
+                        if ((res = sendMessage(mUser.toUtf8().toBase64() + "\r\n", lastResponse)) == 334)
+                        {
+                            if ((res = sendMessage(mPass.toUtf8().toBase64() + "\r\n", lastResponse)) == 235)
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    qDebug() << Q_FUNC_INFO << "ERROR" << res << lastResponse;
+    return false;
+}
+
+int ExSmtpClient::sendMail(const QString &from, const QString &to, const QString &subject, const QString &body, QStringList files)
+{
+    QString lastResponse;
+
     QString message;
     message.append("To: " + to + "\n");
     message.append("From: " + from + "\n");
@@ -36,7 +97,7 @@ bool ExSmtpClient::sendMail(const QString &from, const QString &to, const QStrin
                 if (!file.open(QIODevice::ReadOnly))
                 {
                     qDebug() << "Couldn't open the file";
-                    return false;
+                    return -1;
                 }
                 QByteArray bytes = file.readAll();
                 message.append( "--frontier\n" );
@@ -52,61 +113,48 @@ bool ExSmtpClient::sendMail(const QString &from, const QString &to, const QStrin
     message.replace( QString::fromLatin1( "\n" ), QString::fromLatin1( "\r\n" ) );
     message.replace( QString::fromLatin1( "\r\n.\r\n" ),QString::fromLatin1( "\r\n..\r\n" ) );
 
-    QSslSocket soc;
+    int res = -1;
 
-    auto sendMessage = [&soc](const QString &msg)
-    {
-        soc.write(QString("%0").arg(msg).toUtf8());
-        soc.waitForReadyRead();
-        return soc.readAll().mid(0, 3).toInt();
-    };
-
-    soc.connectToHostEncrypted(mHost, mPort);
-    if (soc.waitForConnected())
-    {
-        if (soc.waitForReadyRead())
-        {
-            if (soc.readAll().mid(0, 3).toInt() == 220)
-            {
-                if (sendMessage("EHLO localhost\r\n") == 250)
-                {
-                    if (sendMessage("AUTH LOGIN\r\n") == 334)
-                    {
-                        if (sendMessage(mUser.toUtf8().toBase64() + "\r\n") == 334)
-                        {
-                            if (sendMessage(mPass.toUtf8().toBase64() + "\r\n") == 235)
-                            {
-                                if (sendMessage(QString("MAIL FROM:<%0>\r\n").arg(from)) == 250)
+//    soc.connectToHostEncrypted(mHost, mPort);
+//    if (soc.waitForConnected())
+//    {
+//        if (soc.waitForReadyRead())
+//        {
+//            if (soc.readAll().mid(0, 3).toInt() == 220)
+//            {
+//                if ((res = sendMessage("EHLO localhost\r\n")) == 250)
+//                {
+//                    if ((res = sendMessage("AUTH LOGIN\r\n")) == 334)
+//                    {
+//                        if ((res = sendMessage(mUser.toUtf8().toBase64() + "\r\n")) == 334)
+//                        {
+//                            if ((res = sendMessage(mPass.toUtf8().toBase64() + "\r\n")) == 235)
+//                            {
+                                if ((res = sendMessage(QString("MAIL FROM:<%0>\r\n").arg(from), lastResponse)) == 250)
                                 {
-                                    if (sendMessage(QString("RCPT TO:<%0>\r\n").arg(to)) == 250)
+                                    if ((res = sendMessage(QString("RCPT TO:<%0>\r\n").arg(to), lastResponse)) == 250)
                                     {
-                                        if (sendMessage("DATA\r\n") == 354)
+                                        if ((res = sendMessage("DATA\r\n", lastResponse)) == 354)
                                         {
-                                            if (sendMessage(QString("%0\r\n.\r\n").arg(message)) == 250)
+                                            if ((res = sendMessage(QString("%0\r\n.\r\n").arg(message), lastResponse)) == 250)
                                             {
-                                                if (sendMessage("QUIT\r\n") == 221)
-                                                {
-                                                    return true;
-                                                }
+                                                return 0;
+                                                //if ((res = sendMessage("QUIT\r\n")) == 221)
+                                                //{
+                                                //    return true;
+                                                //}
                                             }
                                         }
                                     }
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    return false;
-}
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//    }
 
-void ExSmtpClient::init(const QString &user, const QString &pass, const QString &host, quint16 port)
-{
-    mUser = user;
-    mPass = pass;
-    mHost = host;
-    mPort = port;
+    qDebug() << Q_FUNC_INFO << "ERROR" << res << lastResponse;
+    return res;
 }
-
