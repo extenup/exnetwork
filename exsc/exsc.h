@@ -1,4 +1,4 @@
-// version 1.0.0
+// version 2
 
 #ifndef EXSC_H
 #define EXSC_H
@@ -34,8 +34,8 @@ void exsc_init(int maxsrvcnt);
 
 // start the server
 // port: server port
-// timeout: the time after which the server disconnects client in case of inactivity
-// timeframe: the time in wich the server must complete the request (10: faster but higher cpu usage, 100: slower but lower cpu usage)
+// timeout: the time in seconds after which the server disconnects client in case of inactivity
+// timeframe: the time in milliseconds in wich the server must complete the request (10: faster but higher cpu usage, 100: slower but lower cpu usage)
 // recvbufsize: The size of the buffer that the server thread will read at a time
 // concnt: maximum connections count
 // newcon: callback that is called when incoming new connection
@@ -43,7 +43,7 @@ void exsc_init(int maxsrvcnt);
 // recv: callback that is called when receive some data
 // ext: callback that is called every iteration of the exsc loop
 // return value: server descriptor
-int exsc_start(uint16_t port, int timeout, int timeframe, int recvbufsize, int concnt,
+int exsc_start(uint16_t port, int timeout_sec, int timeframe_msec, int recvbufsize, int concnt,
                void newcon(struct exsc_excon excon),
                void closecon(struct exsc_excon excon),
                void recv(struct exsc_excon excon, char *buf, int bufsize),

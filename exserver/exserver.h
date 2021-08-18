@@ -1,4 +1,4 @@
-// version 1.0.3
+// version 3
 
 #ifndef EXSERVER_H
 #define EXSERVER_H
@@ -56,6 +56,9 @@ public:
     void exsc_newcon(struct exsc_excon con);
     void exsc_closecon(struct exsc_excon con);
     void exsc_recv(struct exsc_excon con, char *buf, int bufsize);
+
+    QJsonObject conToJcon(exsc_excon &con);
+    exsc_excon jconToCon(const QJsonObject &jcon);
 
     bool isOnline(const QString &name);
     void setMaxRequestsPerMinute(int maxRequestsPerMinute);

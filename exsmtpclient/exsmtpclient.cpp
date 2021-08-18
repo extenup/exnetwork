@@ -1,3 +1,5 @@
+// version 1
+
 #include "exsmtpclient.h"
 #include <QFile>
 #include <QFileInfo>

@@ -1,3 +1,5 @@
+// version 1
+
 #ifndef EXSMTPCLIENT_H
 #define EXSMTPCLIENT_H
 
