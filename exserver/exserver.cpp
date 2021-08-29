@@ -1,4 +1,4 @@
-// version 3
+// version 4
 
 #include "exserver.h"
 #include <QJsonDocument>
@@ -115,7 +115,7 @@ void ExServer::addToWhiteList(const QString &addr)
     mWhiteList.insert(addr);
 }
 
-void ExServer::login(const QString &conName)
+void ExServer::logIn(const QString &conName)
 {
     Q_UNUSED(conName)
 }

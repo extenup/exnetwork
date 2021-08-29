@@ -1,4 +1,4 @@
-// version 3
+// version 4
 
 #ifndef EXSERVER_H
 #define EXSERVER_H
@@ -46,7 +46,7 @@ protected:
     void addToWhiteList(const QString &addr);
 
     virtual void readMessage(struct exsc_excon &con, QJsonObject &message) = 0;
-    virtual void login(const QString &conName);
+    virtual void logIn(const QString &conName);
     virtual void logout(const QString &conName);
     virtual void closeConnection(struct exsc_excon &con);
 
