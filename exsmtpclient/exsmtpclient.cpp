@@ -1,4 +1,4 @@
-// version 1
+// version 2
 
 #include "exsmtpclient.h"
 #include <QFile>
@@ -22,7 +22,7 @@ int ExSmtpClient::sendMessage(const QString &msg, QString &response)
     return res;
 }
 
-bool ExSmtpClient::login(const QString &user, const QString &pass, const QString &host, quint16 port)
+bool ExSmtpClient::logIn(const QString &user, const QString &pass, const QString &host, quint16 port)
 {
     QString lastResponse;
 

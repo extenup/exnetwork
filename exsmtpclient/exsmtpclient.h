@@ -1,4 +1,4 @@
-// version 1
+// version 2
 
 #ifndef EXSMTPCLIENT_H
 #define EXSMTPCLIENT_H
@@ -20,7 +20,7 @@ public:
     ExSmtpClient(QObject *parent = nullptr);
     int sendMessage(const QString &msg, QString &response);
 
-    bool login(const QString &user, const QString &pass, const QString &host, quint16 port);
+    bool logIn(const QString &user, const QString &pass, const QString &host, quint16 port);
     int sendMail(const QString &from, const QString &to,
                    const QString &subject, const QString &body,
                    QStringList files);
