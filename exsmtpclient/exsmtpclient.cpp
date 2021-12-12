@@ -1,4 +1,4 @@
-// version 1
+// version 3
 
 #include "exsmtpclient.h"
 #include <QFile>
@@ -22,7 +22,7 @@ int ExSmtpClient::sendMessage(const QString &msg, QString &response)
     return res;
 }
 
-bool ExSmtpClient::login(const QString &user, const QString &pass, const QString &host, quint16 port)
+bool ExSmtpClient::logIn(const QString &user, const QString &pass, const QString &host, quint16 port)
 {
     QString lastResponse;
 
@@ -42,12 +42,12 @@ bool ExSmtpClient::login(const QString &user, const QString &pass, const QString
     mSocket->connectToHostEncrypted(mHost, mPort);
     if (mSocket->waitForEncrypted())
     {
-        if (mSocket->waitForReadyRead())
+        if (mHost != "smtp.gmail.com" || mSocket->waitForReadyRead())
         {
-            if (mSocket->readAll().mid(0, 3).toInt() == 220)
+            if (mHost != "smtp.gmail.com" || mSocket->readAll().mid(0, 3).toInt() == 220)
             {
-                if ((res = sendMessage("EHLO localhost\r\n", lastResponse)) == 250)
-                //if ((res = sendMessage("EHLO localhost\r\n", lastResponse)) == 220)
+                res = sendMessage("EHLO localhost\r\n", lastResponse);
+                if (res == 250 || res == 220)
                 {
                     if ((res = sendMessage("AUTH LOGIN\r\n", lastResponse)) == 334)
                     {
@@ -117,45 +117,19 @@ int ExSmtpClient::sendMail(const QString &from, const QString &to, const QString
 
     int res = -1;
 
-//    soc.connectToHostEncrypted(mHost, mPort);
-//    if (soc.waitForConnected())
-//    {
-//        if (soc.waitForReadyRead())
-//        {
-//            if (soc.readAll().mid(0, 3).toInt() == 220)
-//            {
-//                if ((res = sendMessage("EHLO localhost\r\n")) == 250)
-//                {
-//                    if ((res = sendMessage("AUTH LOGIN\r\n")) == 334)
-//                    {
-//                        if ((res = sendMessage(mUser.toUtf8().toBase64() + "\r\n")) == 334)
-//                        {
-//                            if ((res = sendMessage(mPass.toUtf8().toBase64() + "\r\n")) == 235)
-//                            {
-                                if ((res = sendMessage(QString("MAIL FROM:<%0>\r\n").arg(from), lastResponse)) == 250)
-                                {
-                                    if ((res = sendMessage(QString("RCPT TO:<%0>\r\n").arg(to), lastResponse)) == 250)
-                                    {
-                                        if ((res = sendMessage("DATA\r\n", lastResponse)) == 354)
-                                        {
-                                            if ((res = sendMessage(QString("%0\r\n.\r\n").arg(message), lastResponse)) == 250)
-                                            {
-                                                return 0;
-                                                //if ((res = sendMessage("QUIT\r\n")) == 221)
-                                                //{
-                                                //    return true;
-                                                //}
-                                            }
-                                        }
-                                    }
-                                }
-//                            }
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
+    if ((res = sendMessage(QString("MAIL FROM:<%0>\r\n").arg(from), lastResponse)) == 250)
+    {
+        if ((res = sendMessage(QString("RCPT TO:<%0>\r\n").arg(to), lastResponse)) == 250)
+        {
+            if ((res = sendMessage("DATA\r\n", lastResponse)) == 354)
+            {
+                if ((res = sendMessage(QString("%0\r\n.\r\n").arg(message), lastResponse)) == 250)
+                {
+                    return 0;
+                }
+            }
+        }
+    }
 
     qDebug() << Q_FUNC_INFO << "ERROR" << res << lastResponse;
     return res;
